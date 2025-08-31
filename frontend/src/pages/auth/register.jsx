@@ -4,6 +4,5 @@ function AuthRegister() {
 }
   
 
- 
 
 export default AuthRegister;
