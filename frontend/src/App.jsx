@@ -3,7 +3,6 @@ import AuthLayout from "./components/auth/layout.jsx"
 import AuthLogin from "./pages/auth/login.jsx"
 import AuthRegister from "./pages/auth/register.jsx"
 
-
 function App() {
   
   return (
@@ -13,6 +12,7 @@ function App() {
       <Route path="/auth" element={<AuthLayout />} >
         <Route path="login" element={<AuthLogin />} />
         <Route path="register" element={<AuthRegister />} />
+        
 
     </Route>
     </Routes>
