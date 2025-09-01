@@ -3,7 +3,6 @@ import AuthLayout from "./components/auth/layout.jsx"
 import AuthLogin from "./pages/auth/login.jsx"
 import AuthRegister from "./pages/auth/register.jsx"
 
-
 function App() {
   
   return (
