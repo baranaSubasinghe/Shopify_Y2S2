@@ -9,7 +9,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useToast } from "@/components/ui/use-toast";
+//import { useToast } from "@/components/ui/use-toast";
 import { sortOptions } from "@/config";
 import { addToCart, fetchCartItems } from "@/store/shop/cart-slice";
 import {
@@ -20,6 +20,7 @@ import { ArrowUpDownIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 
 function createSearchParamsHelper(filterParams) {
   const queryParams = [];
@@ -48,7 +49,7 @@ function ShoppingListing() {
   const [sort, setSort] = useState(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const [openDetailsDialog, setOpenDetailsDialog] = useState(false);
-  const { toast } = useToast();
+  //const { toast } = useToast();
 
   const categorySearchParam = searchParams.get("category");
 
@@ -94,10 +95,7 @@ function ShoppingListing() {
       if (indexOfCurrentItem > -1) {
         const getQuantity = getCartItems[indexOfCurrentItem].quantity;
         if (getQuantity + 1 > getTotalStock) {
-          toast({
-            title: `Only ${getQuantity} quantity can be added for this item`,
-            variant: "destructive",
-          });
+          toast.error(`Only ${getQuantity} quantity can be added for this item`);
 
           return;
         }
@@ -113,9 +111,7 @@ function ShoppingListing() {
     ).then((data) => {
       if (data?.payload?.success) {
         dispatch(fetchCartItems(user?.id));
-        toast({
-          title: "Product is added to cart",
-        });
+        toast.success("Product added to cart");
       }
     });
   }

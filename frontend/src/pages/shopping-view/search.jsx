@@ -11,6 +11,7 @@ import {
 import { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 
 function SearchProducts() {
   const [keyword, setKeyword] = useState("");
@@ -23,7 +24,7 @@ function SearchProducts() {
   const { user } = useSelector((state) => state.auth);
 
   const { cartItems } = useSelector((state) => state.shopCart);
-  const { toast } = useToast();
+  //const { toast } = useToast();
   useEffect(() => {
     if (keyword && keyword.trim() !== "" && keyword.trim().length > 3) {
       setTimeout(() => {
@@ -47,10 +48,7 @@ function SearchProducts() {
       if (indexOfCurrentItem > -1) {
         const getQuantity = getCartItems[indexOfCurrentItem].quantity;
         if (getQuantity + 1 > getTotalStock) {
-          toast({
-            title: `Only ${getQuantity} quantity can be added for this item`,
-            variant: "destructive",
-          });
+          toast.error(`Only ${getQuantity} quantity can be added for this item`);
 
           return;
         }
@@ -66,9 +64,7 @@ function SearchProducts() {
     ).then((data) => {
       if (data?.payload?.success) {
         dispatch(fetchCartItems(user?.id));
-        toast({
-          title: "Product is added to cart",
-        });
+        toast.success("Product added to cart");
       }
     });
   }

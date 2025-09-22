@@ -18,6 +18,8 @@ import {
 } from "@/store/admin/products-slice";
 import { Fragment, useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
+import { toast } from "@/lib/sonner-adapter";
+import { toast } from "sonner";
 
 const initialFormData = {
   image: null,
@@ -42,7 +44,7 @@ function AdminProducts() {
 
   const { productList } = useSelector((state) => state.adminProducts);
   const dispatch = useDispatch();
-  const { toast } = useToast();
+  //const { toast } = useToast();
 
   function onSubmit(event) {
     event.preventDefault();
@@ -74,9 +76,7 @@ function AdminProducts() {
             setOpenCreateProductsDialog(false);
             setImageFile(null);
             setFormData(initialFormData);
-            toast({
-              title: "Product add successfully",
-            });
+            toast.success("Product created");
           }
         });
   }
