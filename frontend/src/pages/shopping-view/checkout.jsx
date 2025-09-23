@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { createNewOrder } from "@/store/shop/order-slice";
 import { Navigate } from "react-router-dom";
-import { useToast } from "@/components/ui/use-toast";
+//import { useToast } from "@/components/ui/use-toast";
+import { toast } from "sonner";
 
 function ShoppingCheckout() {
   const { cartItems } = useSelector((state) => state.shopCart);
@@ -15,7 +16,7 @@ function ShoppingCheckout() {
   const [currentSelectedAddress, setCurrentSelectedAddress] = useState(null);
   const [isPaymentStart, setIsPaymemntStart] = useState(false);
   const dispatch = useDispatch();
-  const { toast } = useToast();
+  //const { toast } = useToast();
 
   console.log(currentSelectedAddress, "cartItems");
 
@@ -34,18 +35,12 @@ function ShoppingCheckout() {
 
   function handleInitiatePaypalPayment() {
     if (cartItems.length === 0) {
-      toast({
-        title: "Your cart is empty. Please add items to proceed",
-        variant: "destructive",
-      });
+      toast.error("Your cart is empty. Please add items to proceed");
 
       return;
     }
     if (currentSelectedAddress === null) {
-      toast({
-        title: "Please select one address to proceed.",
-        variant: "destructive",
-      });
+      toast.error("Please select one address to proceed.");
 
       return;
     }
