@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 //import bannerTwo from "../../assets/banner-2.webp";
 //import bannerThree from "../../assets/banner-3.webp";
 
-import { toast } from "sonner";
+
 
 import {
   Airplay,
@@ -33,7 +33,7 @@ import { addToCart, fetchCartItems } from "@/store/shop/cart-slice";
 //import { useToast } from "@/components/ui/use-toast";
 import ProductDetailsDialog from "@/components/shopping-view/product-details";
 import { getFeatureImages } from "@/store/common-slice";
-
+import { toast } from "sonner";
 
 const categoriesWithIcon = [
   { id: "men", label: "Men", icon: ShirtIcon },
@@ -94,7 +94,9 @@ function ShoppingHome() {
     ).then((data) => {
       if (data?.payload?.success) {
         dispatch(fetchCartItems(user?.id));
-        toast.success("Product added to cart");
+        toast({
+          title: "Product is added to cart",
+        });
       }
     });
   }

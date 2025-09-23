@@ -8,7 +8,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { useToast } from "@/components/ui/use-toast";
+//import { useToast } from "@/components/ui/use-toast";
 import { addProductFormElements } from "@/config";
 import {
   addNewProduct,
@@ -18,7 +18,7 @@ import {
 } from "@/store/admin/products-slice";
 import { Fragment, useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { toast } from "@/lib/sonner-adapter";
+//import { toast } from "@/lib/sonner-adapter";
 import { toast } from "sonner";
 
 const initialFormData = {
