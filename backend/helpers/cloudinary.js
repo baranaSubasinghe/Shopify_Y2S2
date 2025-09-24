@@ -1,12 +1,25 @@
 const cloudinary = require("cloudinary").v2;
 const multer = require("multer");
 
+
+//LwjVFWza3pTEXb0G12e-lI1dQFQ
+
 cloudinary.config({
   cloud_name: "dehdzmxii",
   api_key: "383542566925263",
   api_secret: "LwjVFWza3pTEXb0G12e-lI1dQFQ",
 });
 
+// load .env file
+/*
+require("dotenv").config();
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+*/
 const storage = new multer.memoryStorage();
 
 async function imageUploadUtil(file) {
