@@ -5,7 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { registerUser } from "@/store/auth-slice";
 import { useState } from "react";
 import { toast } from "sonner";
-//import { toast } from "sonner";
+
 
 
 
@@ -36,7 +36,7 @@ function AuthRegister() {
   console.log(formData);
 
   return (
-    <div className="mx-30 w-150 max-w-130 space-y-6">
+    <div className="mx-auto w-full max-w-md space-y-6">
       <div className="text-center">
         <h1 className="text-3xl font-bold tracking-tight text-foreground">
           Create new account
