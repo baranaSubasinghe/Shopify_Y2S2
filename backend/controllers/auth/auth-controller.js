@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 const User = require("../../models/User");
 
 
+
 //register
 const registerUser = async (req, res) => {
   const { userName, email, password } = req.body;
@@ -118,4 +119,27 @@ const authMiddleware = async (req, res, next) => {
   }
 };
 
-module.exports = { registerUser, loginUser, logoutUser, authMiddleware };
+//admin midlware
+// Ensure request comes from a logged-in ADMIN user
+const adminOnly = async (req, res, next) => {
+  try {
+    // `authMiddleware` must run before this, so req.user.id should exist
+    if (!req.user?.id) {
+      return res.status(401).json({ success: false, message: "Unauthorised user!" });
+    }
+
+    const user = await User.findById(req.user.id).select("isAdmin role");
+    const isAdmin = user && (user.isAdmin === true || user.role === "admin");
+
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, message: "Admins only." });
+    }
+
+    next();
+  } catch (err) {
+    return res.status(500).json({ success: false, message: "Server error." });
+  }
+};
+
+
+module.exports = { registerUser, loginUser, logoutUser, authMiddleware ,adminOnly};

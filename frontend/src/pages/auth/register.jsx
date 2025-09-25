@@ -13,6 +13,7 @@ const initialState = {
   userName: "",
   email: "",
   password: "",
+  confirmPassword: "",
 };
 function AuthRegister() {
   const [formData, setFormData] = useState(initialState);
@@ -22,7 +23,25 @@ function AuthRegister() {
 
   function onSubmit(event) {
    event.preventDefault();
-    dispatch(registerUser(formData)).then((data) => {
+    //dispatch(registerUser(formData)).then((data) => {
+      // basic client-side checks
+  if (!formData.userName || !formData.email || !formData.password || !formData.confirmPassword) {
+   toast.error("Please fill in all fields.");
+    return;
+  }
+  if (formData.password !== formData.confirmPassword) {
+    toast.error("Passwords do not match.");
+    return;
+  }
+
+ // send only the fields your backend expects
+ const payload = {
+    userName: formData.userName,
+    email: formData.email,
+    password: formData.password,
+  };
+
+  dispatch(registerUser(payload)).then((data) => {
       if (data?.payload?.success) {
         toast.success(data?.payload?.message || "Registration successful!");
       navigate("/auth/login");
