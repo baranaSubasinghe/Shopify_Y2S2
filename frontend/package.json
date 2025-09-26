@@ -24,6 +24,7 @@
     "axios": "^1.11.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "hugeicons-react": "^0.3.0",
     "jspdf": "^3.0.3",
     "jspdf-autotable": "^5.0.2",
     "lucide-react": "^0.542.0",

@@ -1,5 +1,6 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import axios from "axios";
+const API = import.meta.env.VITE_API_URL || "http://localhost:5001";
 
 const initialState = {
   isLoading: false,
@@ -28,13 +29,24 @@ export const addFeatureImage = createAsyncThunk(
     return response.data;
   }
 );
+export const deleteFeature = createAsyncThunk("common/deleteFeature", async (id) => {
+  const { data } = await axios.delete(`${API}/api/common/feature/${id}`, { withCredentials:true });
+  return { id, ...data };
+});
+
+
 
 const commonSlice = createSlice({
   name: "commonSlice",
   initialState,
   reducers: {},
   extraReducers: (builder) => {
-    builder
+
+    
+    builder.
+      addCase(deleteFeature.fulfilled, (s, a) => {
+       s.features = s.features.filter(f => f._id !== a.payload.id);
+      })
       .addCase(getFeatureImages.pending, (state) => {
         state.isLoading = true;
       })
