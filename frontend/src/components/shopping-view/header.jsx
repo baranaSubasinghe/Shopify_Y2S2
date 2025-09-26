@@ -142,9 +142,9 @@ function ShoppingHeader() {
     <header className="sticky top-0 z-40 w-full border-b bg-background">
       <div className="flex h-16 items-center justify-between px-4 md:px-6">
         <Link to="/shop/home" className="flex items-center gap-2">
-          <ShoppingBag className="h-8 w-8" />
+          <ShoppingBag className="h-8 w-8" style={{ color: "#000000ff" }}/>
           
-          <span className="font-bold">Shopify</span>
+          <span className="font-bold" style={{ color: "#000000ff" }}>Shopify</span>
         </Link>
         <Sheet>
           <SheetTrigger asChild>
