@@ -47,11 +47,11 @@ function ShoppingProductTile({
                 product?.salePrice > 0 ? "line-through" : ""
               } text-lg font-semibold text-primary`}
             >
-              ${product?.price}
+             {"Rs. "}{Number(product?.price ?? 0).toLocaleString("en-LK")}
             </span>
             {product?.salePrice > 0 ? (
               <span className="text-lg font-semibold text-primary">
-                ${product?.salePrice}
+                {"Rs. "}{Number(product?.salePrice ?? 0).toLocaleString("en-LK")}
               </span>
             ) : null}
           </div>
