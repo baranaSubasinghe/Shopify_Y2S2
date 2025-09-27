@@ -1,36 +1,44 @@
 import CommonForm from "@/components/common/form";
 import { loginFormControls } from "@/config";
-//import { useToast } from "@/components/ui/use-toast";
-//import { loginFormControls } from "@/config";
 import { loginUser } from "@/store/auth-slice";
 import { useState } from "react";
 import { useDispatch } from "react-redux";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
-
-
 const initialState = {
   email: "",
   password: "",
 };
 
+// same email regex as register
+const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 function AuthLogin() {
   const [formData, setFormData] = useState(initialState);
   const dispatch = useDispatch();
-  //const { toast } = useToast();
 
-  function onSubmit(event) {
+  async function onSubmit(event) {
     event.preventDefault();
 
-    dispatch(loginUser(formData)).then((data) => {
-      if (data?.payload?.success) {
-         toast.success(data?.payload?.message || "Login successful!");
-         
-      } else {
-        toast.error(data?.payload?.message || "Login failed!");
-      }
-    });
+    const email = (formData.email || "").trim().toLowerCase();
+    const password = formData.password || "";
+
+    if (!emailRe.test(email)) {
+      toast.error("Enter a valid email address.");
+      return;
+    }
+    if (!password) {
+      toast.error("Password is required.");
+      return;
+    }
+
+    const res = await dispatch(loginUser({ email, password }));
+    if (res?.payload?.success) {
+      toast.success(res?.payload?.message || "Login successful!");
+    } else {
+      toast.error(res?.payload?.message || "Login failed!");
+    }
   }
 
   return (

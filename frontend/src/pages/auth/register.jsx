@@ -6,53 +6,77 @@ import { registerUser } from "@/store/auth-slice";
 import { useState } from "react";
 import { toast } from "sonner";
 
-
-
-
 const initialState = {
   userName: "",
   email: "",
   password: "",
   confirmPassword: "",
 };
+
+// regex rules
+const nameOnlyLetters = /^[A-Za-z\s]+$/; // letters + spaces only
+const strongPassword =
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{8,72}$/; // 8-72, upper, lower, number, symbol
+const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/; // proper email format
+
 function AuthRegister() {
   const [formData, setFormData] = useState(initialState);
   const dispatch = useDispatch();
   const navigate = useNavigate();
-//  const { toast } = useToast();
 
-  function onSubmit(event) {
-   event.preventDefault();
-    //dispatch(registerUser(formData)).then((data) => {
-      // basic client-side checks
-  if (!formData.userName || !formData.email || !formData.password || !formData.confirmPassword) {
-   toast.error("Please fill in all fields.");
-    return;
-  }
-  if (formData.password !== formData.confirmPassword) {
-    toast.error("Passwords do not match.");
-    return;
-  }
+  async function onSubmit(event) {
+    event.preventDefault();
 
- // send only the fields your backend expects
- const payload = {
-    userName: formData.userName,
-    email: formData.email,
-    password: formData.password,
-  };
+    const userName = (formData.userName || "").trim();
+    const email = (formData.email || "").trim().toLowerCase();
+    const password = formData.password || "";
+    const confirmPassword = formData.confirmPassword || "";
 
-  dispatch(registerUser(payload)).then((data) => {
-      if (data?.payload?.success) {
-        toast.success(data?.payload?.message || "Registration successful!");
+    // presence checks
+    if (!userName || !email || !password || !confirmPassword) {
+      toast.error("Please fill in all fields.");
+      return;
+    }
+
+    // username validations
+    if (userName.length < 2 || userName.length > 50) {
+      toast.error("User name must be 2–50 characters.");
+      return;
+    }
+    if (!nameOnlyLetters.test(userName)) {
+      toast.error("User name can contain only letters and spaces.");
+      return;
+    }
+
+    // email
+    if (!emailRe.test(email)) {
+      toast.error("Enter a valid email address.");
+      return;
+    }
+
+    // password
+    if (!strongPassword.test(password)) {
+      toast.error("Password must be 8+ chars and include upper, lower, number, and symbol.");
+      return;
+    }
+
+    // confirm
+    if (password !== confirmPassword) {
+      toast.error("Passwords do not match.");
+      return;
+    }
+
+    // payload (send only what backend expects)
+    const payload = { userName, email, password };
+
+    const res = await dispatch(registerUser(payload));
+    if (res?.payload?.success) {
+      toast.success(res?.payload?.message || "Registration successful!");
       navigate("/auth/login");
-        navigate("/auth/login");
-      } else {
-       toast.error(data?.payload?.message || "Something went wrong!");
-      }
-    }); 
+    } else {
+      toast.error(res?.payload?.message || "Something went wrong!");
+    }
   }
-
-  console.log(formData);
 
   return (
     <div className="mx-auto w-full max-w-md space-y-6">
