@@ -119,17 +119,19 @@ function ProductDetailsDialog({ open, setOpen, productDetails }) {
           </div>
           <div className="flex items-center justify-between">
             <p
-              className={`text-3xl font-bold text-primary ${
-                productDetails?.salePrice > 0 ? "line-through" : ""
-              }`}
-            >
-              ${productDetails?.price}
-            </p>
-            {productDetails?.salePrice > 0 ? (
-              <p className="text-2xl font-bold text-muted-foreground">
-                ${productDetails?.salePrice}
-              </p>
-            ) : null}
+  className={`text-3xl font-bold text-primary ${
+    productDetails?.salePrice > 0 ? "line-through" : ""
+  }`}
+>
+  {"Rs. "}{Number(productDetails?.price ?? 0).toLocaleString("en-LK")}
+</p>
+
+{productDetails?.salePrice > 0 ? (
+  <p className="text-2xl font-bold text-muted-foreground">
+    {"Rs. "}{Number(productDetails?.salePrice ?? 0).toLocaleString("en-LK")}
+  </p>
+) : null}
+
           </div>
           <div className="flex items-center gap-2 mt-2">
             <div className="flex items-center gap-0.5">

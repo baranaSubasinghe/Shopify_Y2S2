@@ -75,7 +75,10 @@ function AdminOrdersView() {
                         {orderItem?.orderStatus}
                       </Badge>
                     </TableCell>
-                    <TableCell>${orderItem?.totalAmount}</TableCell>
+                    <TableCell className="font-semibold">
+  {"Rs. "}{Number(orderItem?.totalAmount ?? 0).toLocaleString("en-LK")}
+</TableCell>
+
                     <TableCell>
                       <Dialog
                         open={openDetailsDialog}

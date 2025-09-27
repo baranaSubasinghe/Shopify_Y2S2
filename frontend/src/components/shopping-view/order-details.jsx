@@ -21,7 +21,9 @@ function ShoppingOrderDetailsView({ orderDetails }) {
           </div>
           <div className="flex mt-2 items-center justify-between">
             <p className="font-medium">Order Price</p>
-            <Label>${orderDetails?.totalAmount}</Label>
+           <Label>
+  {"Rs. "}{Number(orderDetails?.totalAmount ?? 0).toLocaleString("en-LK")}
+</Label>
           </div>
           <div className="flex mt-2 items-center justify-between">
             <p className="font-medium">Payment method</p>
@@ -58,7 +60,12 @@ function ShoppingOrderDetailsView({ orderDetails }) {
                     <li className="flex items-center justify-between">
                       <span>Title: {item.title}</span>
                       <span>Quantity: {item.quantity}</span>
-                      <span>Price: ${item.price}</span>
+                     <span>
+  Price: {"Rs. "}{Number(item.price ?? 0).toLocaleString("en-LK")}
+</span>
+<span>
+  Total: {"Rs. "}{Number((item.price ?? 0) * (item.quantity ?? 1)).toLocaleString("en-LK")}
+</span>
                     </li>
                   ))
                 : null}
