@@ -15,6 +15,8 @@ const shopSearchRouter = require("./routes/shop/search-routes");
 const shopReviewRouter = require("./routes/shop/review-routes");
 
 const commonFeatureRouter = require("./routes/common/feature-routes");
+require('dotenv').config();
+
 //ltNtzkYiFaEnfUP8
 //mongodb+srv://admin:ltNtzkYiFaEnfUP8@cluster0.hdmhbpb.mongodb.net/
 

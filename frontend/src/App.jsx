@@ -19,10 +19,12 @@ import { useDispatch, useSelector } from "react-redux";
 import { useEffect } from "react";
 import { checkAuth } from "./store/auth-slice";
 import { Skeleton } from "@/components/ui/skeleton";
-import PaypalReturnPage from "./pages/shopping-view/paypal-return";
-import PaymentSuccessPage from "./pages/shopping-view/payment-success";
+//import PaypalReturnPage from "./pages/shopping-view/paypal-return";
+//import PaymentSuccessPage from "./pages/shopping-view/payment-success";
 import SearchProducts from "./pages/shopping-view/search";
 import AdminUsersPage from "@/pages/admin-view/users";
+import PayHereReturn from "@/pages/shopping-view/payhere-return";
+import PayHereCancel from "@/pages/shopping-view/payhere-cancel";
 
 
 function App() {
@@ -89,12 +91,14 @@ function App() {
           <Route path="listing" element={<ShoppingListing />} />
           <Route path="checkout" element={<ShoppingCheckout />} />
           <Route path="account" element={<ShoppingAccount />} />
-          <Route path="paypal-return" element={<PaypalReturnPage />} />
-          <Route path="payment-success" element={<PaymentSuccessPage />} />
+       
           <Route path="search" element={<SearchProducts />} />
         </Route>
         <Route path="/unauth-page" element={<UnauthPage />} />
         <Route path="*" element={<NotFound />} />
+
+        <Route path="/payhere/return" element={<PayHereReturn />} />
+  <Route path="/payhere/cancel" element={<PayHereCancel />} />
       </Routes>
     </div>
   );
