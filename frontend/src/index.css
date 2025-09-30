@@ -5,6 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  
   max-width: none !important;
   margin: 0 !important;
   padding: 0 !important;
@@ -108,9 +109,9 @@ button:focus-visible {
   a:hover {
     color: #747bff;
   }
-  button {
-    background-color: #f9f9f9;
-  }
+ button:not([data-slot="button"]) {
+  background-color: #f9f9f9;
+}
 }
 
 @theme inline {
