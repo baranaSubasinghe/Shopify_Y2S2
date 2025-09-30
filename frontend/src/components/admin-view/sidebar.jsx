@@ -4,7 +4,9 @@ import {
   LayoutDashboard,
   ShoppingBasket,
   User,
+  MessageSquare,
 } from "lucide-react";
+
 import { Fragment } from "react";
 import { useNavigate } from "react-router-dom";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../ui/sheet";
@@ -33,6 +35,12 @@ const adminSidebarMenuItems = [
     label: "Users",
     path: "/admin/users",
     icon: <User />,
+  },
+   {
+    id: "reviews",
+    label: "reviews",
+    path: "/admin/reviews",
+    icon: <MessageSquare  />,
   },
 ];
 
