@@ -8,20 +8,23 @@ function AddressCard({
   handleEditAddress,
   setCurrentSelectedAddress,
   selectedId,
-}) {
+})
+
+{
+    const isActive = String(selectedId || "") === String(addressInfo?._id || "");
+
   return (
+    
     <Card
-      onClick={
-        setCurrentSelectedAddress
-          ? () => setCurrentSelectedAddress(addressInfo)
-          : null
-      }
-      className={`cursor-pointer border-red-700 ${
-        selectedId?._id === addressInfo?._id
-          ? "border-red-900 border-[4px]"
-          : "border-black"
-      }`}
-    >
+  onClick={
+    setCurrentSelectedAddress
+      ? () => setCurrentSelectedAddress(addressInfo)
+      : undefined
+  }
+  className={`cursor-pointer transition rounded-lg border p-3 ${
+    isActive ? "border-primary ring-1 ring-primary" : "border-muted"
+  }`}
+>
       <CardContent className="grid p-4 gap-4">
         <Label>Address: {addressInfo?.address}</Label>
         <Label>City: {addressInfo?.city}</Label>

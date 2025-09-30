@@ -1,8 +1,20 @@
-const paypal = require("../../helpers/paypal");
+
 const Order = require("../../models/Order");
 const Cart = require("../../models/Cart");
 const Product = require("../../models/Product");
+const {
+  isSandbox,
+  toAmountTwoDecimals,
+  generateCheckoutHash,
+  verifyIPNSignature,
+} = require("../../helpers/payhere");
 
+const merchantId = process.env.PAYHERE_MERCHANT_ID;
+const merchantSecret = process.env.PAYHERE_MERCHANT_SECRET;
+const appBaseUrl = process.env.APP_BASE_URL; 
+const apiBaseUrl = process.env.API_BASE_URL; 
+
+ 
 const createOrder = async (req, res) => {
   try {
     const {
@@ -15,188 +27,179 @@ const createOrder = async (req, res) => {
       totalAmount,
       orderDate,
       orderUpdateDate,
-      paymentId,
-      payerId,
       cartId,
     } = req.body;
 
-    const create_payment_json = {
-      intent: "sale",
-      payer: {
-        payment_method: "paypal",
-      },
-      redirect_urls: {
-        return_url: "http://localhost:5173/shop/paypal-return",
-        cancel_url: "http://localhost:5173/shop/paypal-cancel",
-      },
-      transactions: [
-        {
-          item_list: {
-            items: cartItems.map((item) => ({
-              name: item.title,
-              sku: item.productId,
-              price: item.price.toFixed(2),
-              currency: "USD",
-              quantity: item.quantity,
-            })),
-          },
-          amount: {
-            currency: "USD",
-            total: totalAmount.toFixed(2),
-          },
-          description: "description",
-        },
-      ],
+    if (!process.env.PAYHERE_MERCHANT_ID || !process.env.PAYHERE_MERCHANT_SECRET) {
+      console.error("PayHere env missing");
+      return res.status(500).json({ success: false, message: "PayHere not configured" });
+    }
+
+    if (!totalAmount || isNaN(Number(totalAmount)) || Number(totalAmount) <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid total amount" });
+    }
+
+    const amountStr = Number(totalAmount).toFixed(2); // "10.00"
+    const newlyCreatedOrder = await Order.create({
+      userId,
+      cartId: cartId || "",
+      cartItems,
+      addressInfo,
+      orderStatus: orderStatus || "PENDING",
+      paymentMethod: "payhere",
+      paymentStatus: paymentStatus || "PENDING",
+      totalAmount: Number(totalAmount),
+      orderDate: orderDate || new Date(),
+      orderUpdateDate: orderUpdateDate || new Date(),
+      paymentId: "", // filled by IPN
+      payerId: "",
+    });
+
+    const orderId = String(newlyCreatedOrder._id);
+    const currency = "LKR";
+
+    const payment = {
+      sandbox: isSandbox(),
+      merchant_id: process.env.PAYHERE_MERCHANT_ID,
+       return_url: `${process.env.APP_BASE_URL}/payhere-return?orderId=${orderId}`,
+      cancel_url: `${process.env.APP_BASE_URL}/payhere-cancel?orderId=${orderId}`,
+      notify_url: `${process.env.API_BASE_URL}/api/shop/order/notify`,
+      order_id: orderId,
+      items: "Cart Purchase",
+      
+      amount: amountStr,
+      currency,
+      first_name: addressInfo?.firstName || "Customer",
+      last_name: addressInfo?.lastName || "",
+      email: addressInfo?.email || "",
+      phone: addressInfo?.phone || "",
+      address: addressInfo?.address || "",
+      city: addressInfo?.city || "",
+      country: addressInfo?.country || "Sri Lanka",
     };
 
-    paypal.payment.create(create_payment_json, async (error, paymentInfo) => {
-      if (error) {
-        console.log(error);
+    try {
+      payment.hash = generateCheckoutHash({
+        merchantId: process.env.PAYHERE_MERCHANT_ID,
+        orderId,
+        amount: amountStr,
+        currency,
+        merchantSecret: process.env.PAYHERE_MERCHANT_SECRET,
+      });
+       // If your SDK variant expects this key:
+     payment.hash_value = payment.hash;
+        console.log("PayHere init →", {
+            mode: process.env.PAYHERE_MODE,
+            merchant_id: payment.merchant_id,
+            order_id: payment.order_id,
+            amount: payment.amount,
+            currency: payment.currency,
+            return_url: payment.return_url,
+            cancel_url: payment.cancel_url,
+            notify_url: payment.notify_url,
+            origin_hint: process.env.APP_BASE_URL, // must match a validated domain host
+          });
 
-        return res.status(500).json({
-          success: false,
-          message: "Error while creating paypal payment",
-        });
-      } else {
-        const newlyCreatedOrder = new Order({
-          userId,
-          cartId,
-          cartItems,
-          addressInfo,
-          orderStatus,
-          paymentMethod,
-          paymentStatus,
-          totalAmount,
-          orderDate,
-          orderUpdateDate,
-          paymentId,
-          payerId,
-        });
+    } catch (err) {
+      console.error("Error generating PayHere hash:", err);
+      return res.status(500).json({ success: false, message: "Payment signature error" });
+    }
 
-        await newlyCreatedOrder.save();
-
-        const approvalURL = paymentInfo.links.find(
-          (link) => link.rel === "approval_url"
-        ).href;
-
-        res.status(201).json({
-          success: true,
-          approvalURL,
-          orderId: newlyCreatedOrder._id,
-        });
-      }
-    });
+      return res.status(200).json({ success: true, payment, orderId });
   } catch (e) {
-    console.log(e);
-    res.status(500).json({
-      success: false,
-      message: "Some error occured!",
-    });
+    console.error("createOrder error:", e);
+    return res.status(500).json({ success: false, message: "Some error occured!" });
   }
 };
 
-const capturePayment = async (req, res) => {
+
+// IPN / Notify handler (PayHere -> Your server)
+const handlePayHereNotify = async (req, res) => {
   try {
-    const { paymentId, payerId, orderId } = req.body;
+    const {
+      merchant_id,
+      order_id,
+      payment_id,
+      payhere_amount,
+      payhere_currency,
+      status_code,       // 2 = success
+      md5sig,
+      method,            // e.g., "VISA"
+      status_message,
+    } = req.body;
 
-    let order = await Order.findById(orderId);
+    const okSig = verifyIPNSignature({
+      merchantId: merchant_id,
+      orderId: order_id,
+      payhereAmount: payhere_amount,
+      payhereCurrency: payhere_currency,
+      statusCode: status_code,
+      receivedMd5sig: md5sig,
+      merchantSecret,
+    });
 
+    if (!okSig) {
+      console.warn("PayHere IPN signature invalid for order:", order_id);
+      return res.status(400).send("Invalid signature");
+    }
+
+    const order = await Order.findById(order_id);
     if (!order) {
-      return res.status(404).json({
-        success: false,
-        message: "Order can not be found",
-      });
+      return res.status(404).send("Order not found");
     }
 
-    order.paymentStatus = "paid";
-    order.orderStatus = "confirmed";
-    order.paymentId = paymentId;
-    order.payerId = payerId;
-
-    for (let item of order.cartItems) {
-      let product = await Product.findById(item.productId);
-
-      if (!product) {
-        return res.status(404).json({
-          success: false,
-          message: `Not enough stock for this product ${product.title}`,
-        });
-      }
-
-      product.totalStock -= item.quantity;
-
-      await product.save();
+    if (String(status_code) === "2") {
+      order.paymentStatus = "paid";
+      order.orderStatus = "confirmed";
+      order.paymentId = payment_id || ""; // store PayHere ref
+    } else if (String(status_code) === "0") {
+      // pending
+      order.paymentStatus = "pending";
+    } else {
+      order.paymentStatus = "failed";
+      order.orderStatus = "cancelled";
     }
-
-    const getCartId = order.cartId;
-    await Cart.findByIdAndDelete(getCartId);
 
     await order.save();
+    return res.status(200).send("OK");
+  } catch (e) {
+    console.error(e);
+    return res.status(500).send("Server error");
+  }
+};
 
-    res.status(200).json({
+// Optional: return URL just for UX; status will be set by IPN
+const getOrderDetails = async (req, res) => {
+  try {
+    const orderId = req.params.id;
+    const order = await Order.findById(orderId);
+    return res.status(200).json({
       success: true,
-      message: "Order confirmed",
       data: order,
     });
   } catch (e) {
     console.log(e);
-    res.status(500).json({
-      success: false,
-      message: "Some error occured!",
-    });
+    return res.status(500).json({ success: false, message: "Error" });
   }
 };
 
 const getAllOrdersByUser = async (req, res) => {
   try {
     const { userId } = req.params;
-
-    const orders = await Order.find({ userId });
-
-    if (!orders.length) {
-      return res.status(404).json({
-        success: false,
-        message: "No orders found!",
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      data: orders,
-    });
+    const orders = await Order.find({ userId }).sort({ orderDate: -1 });
+    return res.status(200).json({ success: true, data: orders });
   } catch (e) {
     console.log(e);
-    res.status(500).json({
-      success: false,
-      message: "Some error occured!",
-    });
+    return res.status(500).json({ success: false, message: "Error" });
   }
 };
 
-const getOrderDetails = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const order = await Order.findById(id);
-
-    if (!order) {
-      return res.status(404).json({
-        success: false,
-        message: "Order not found!",
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      data: order,
-    });
-  } catch (e) {
-    console.log(e);
-    res.status(500).json({
-      success: false,
-      message: "Some error occured!",
-    });
-  }
+// Old capturePayment is not used by PayHere, but we’ll keep a stub to avoid frontend breaking if called accidentally
+const capturePayment = async (_req, res) => {
+  return res.status(400).json({
+    success: false,
+    message: "Not applicable for PayHere",
+  });
 };
 
 module.exports = {
@@ -204,4 +207,5 @@ module.exports = {
   capturePayment,
   getAllOrdersByUser,
   getOrderDetails,
+  handlePayHereNotify,
 };

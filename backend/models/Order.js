@@ -8,7 +8,7 @@ const OrderSchema = new mongoose.Schema({
       productId: String,
       title: String,
       image: String,
-      price: String,
+      price: Number,
       quantity: Number,
     },
   ],
@@ -30,4 +30,4 @@ const OrderSchema = new mongoose.Schema({
   payerId: String,
 });
 
-module.exports = mongoose.models.Order || mongoose.model('Order', orderSchema);
+module.exports = mongoose.models.Order || mongoose.model('Order', OrderSchema);
