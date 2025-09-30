@@ -2,16 +2,16 @@
 const crypto = require("crypto");
 
 function isSandbox() {
-  return (process.env.PAYHERE_MODE || "sandbox") !== "live";
+  return (process.env.PAYHERE_MODE || "sandbox").toLowerCase() !== "live";
 }
 
 function toAmountTwoDecimals(num) {
-  return Number(num).toFixed(2);
+  return Number(num).toFixed(2); // "123.45"
 }
 
 /**
- * Generate the PayHere "hash" field required for checkout request.
- * Formula: MD5( merchant_id + order_id + amount + currency + MD5(merchant_secret).toUpperCase() ).toUpperCase()
+ * Checkout hash
+ * MD5( merchant_id + order_id + amount + currency + MD5(merchant_secret).toUpperCase() ).toUpperCase()
  */
 function generateCheckoutHash({ merchantId, orderId, amount, currency, merchantSecret }) {
   const amountStr = toAmountTwoDecimals(amount);
@@ -21,8 +21,8 @@ function generateCheckoutHash({ merchantId, orderId, amount, currency, merchantS
 }
 
 /**
- * Verify IPN (server-to-server) signature.
- * Formula: MD5( merchant_id + order_id + payhere_amount + payhere_currency + status_code + MD5(merchant_secret).toUpperCase() ).toUpperCase()
+ * IPN hash verification
+ * MD5( merchant_id + order_id + payhere_amount + payhere_currency + status_code + MD5(merchant_secret).toUpperCase() ).toUpperCase()
  */
 function verifyIPNSignature({
   merchantId,

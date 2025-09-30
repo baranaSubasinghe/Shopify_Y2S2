@@ -27,8 +27,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 //import PaymentSuccessPage from "./pages/shopping-view/payment-success";
 import SearchProducts from "./pages/shopping-view/search";
 import AdminUsersPage from "@/pages/admin-view/users";
-import PayHereReturn from "@/pages/shopping-view/payhere-return";
-import PayHereCancel from "@/pages/shopping-view/payhere-cancel";
+import PayHereReturn from "./pages/shopping-view/payhere-return";
+import PayHereCancel from "./pages/shopping-view/payhere-cancel";
+
 
 
 function App() {
@@ -104,8 +105,8 @@ function App() {
         <Route path="/unauth-page" element={<UnauthPage />} />
         <Route path="*" element={<NotFound />} />
 
-        <Route path="/payhere/return" element={<PayHereReturn />} />
-  <Route path="/payhere/cancel" element={<PayHereCancel />} />
+        <Route path="/payhere-return" element={<PayHereReturn />} />
+        <Route path="/payhere-cancel" element={<PayHereCancel />} />
       </Routes>
     </div>
   );
