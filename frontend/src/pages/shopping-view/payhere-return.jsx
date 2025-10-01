@@ -1,30 +1,43 @@
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useEffect } from "react";
-import { useSearchParams, Link } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useDispatch } from "react-redux";
+import { toast } from "sonner";
+import { getAllOrdersByUserId } from "@/store/shop/order-slice";
+//import { getOrderById } from "@/store/shop/order-slice"; // adjust import if path differs
 
 export default function PayHereReturn() {
-  const [params] = useSearchParams();
-  const orderId = params.get("orderId");
+  const { search } = useLocation();
+  const orderId = new URLSearchParams(search).get("orderId");
+  const dispatch = useDispatch();
+  const navigate = useNavigate();
 
-  // We rely on IPN to finalize status. This page is just a friendly stop.
   useEffect(() => {
-    // you could poll /details/:id here if you want live status
+    if (!orderId) {
+      toast.error("Missing orderId");
+      navigate("/cart");
+      return;
+    }
+    dispatch(getAllOrdersByUserId(orderId))
+      .unwrap()
+      .then((res) => {
+        if (res?.data?.paymentStatus === "paid") {
+          toast.success("Payment successful");
+        } else {
+          toast("Payment is being verified…");
+        }
+      })
+      .catch(() => {});
   }, [orderId]);
 
   return (
-    <Card className="max-w-lg mx-auto mt-10">
-      <CardHeader>
-        <CardTitle>Thanks! Processing your payment…</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="mb-4">Order ID: {orderId}</p>
-        <p className="mb-6">
-          You can view the order details once we confirm your payment.
-        </p>
-        <Link to={`/orders/${orderId}`} className="underline">
-          Go to Order Details
-        </Link>
-      </CardContent>
-    </Card>
+    <div className="container mx-auto p-6">
+      <h1 className="text-xl font-semibold">Thank you!</h1>
+      <p className="text-sm text-muted-foreground">
+        We’re finalizing your order. You can view it in{" "}
+        <button className="underline" onClick={() => navigate("/shop/account")}>
+          My Orders
+        </button>.
+      </p>
+    </div>
   );
 }

@@ -1,19 +1,21 @@
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { useSearchParams, Link } from "react-router-dom";
+import { useEffect } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
 export default function PayHereCancel() {
-  const [params] = useSearchParams();
-  const orderId = params.get("orderId");
+  const { search } = useLocation();
+  const orderId = new URLSearchParams(search).get("orderId");
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    toast("Payment cancelled");
+  }, []);
 
   return (
-    <Card className="max-w-lg mx-auto mt-10">
-      <CardHeader>
-        <CardTitle>Payment was cancelled</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="mb-4">Order ID: {orderId}</p>
-        <Link to="/cart" className="underline">Back to cart</Link>
-      </CardContent>
-    </Card>
+    <div className="container mx-auto p-6">
+      <h1 className="text-xl font-semibold">Payment cancelled</h1>
+      {orderId && <p className="text-sm text-muted-foreground">Order <code>{orderId}</code> was not completed.</p>}
+      <button className="mt-4 btn" onClick={() => navigate("/cart")}>Back to cart</button>
+    </div>
   );
 }

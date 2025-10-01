@@ -28,6 +28,8 @@ mongoose
 
 const app = express();
 const PORT = process.env.PORT || 5001;
+//md5( merchant_id + order_id + amount + currency + md5(merchant_secret) )
+
 
 app.use(
   cors({
@@ -46,6 +48,7 @@ app.use(
 
 app.use(cookieParser());
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 app.use("/api/auth", authRouter);
 app.use("/api/admin/products", adminProductsRouter);
 app.use("/api/admin/orders", adminOrderRouter);

@@ -11,9 +11,10 @@ const {
 
 const merchantId = process.env.PAYHERE_MERCHANT_ID;
 const merchantSecret = process.env.PAYHERE_MERCHANT_SECRET;
-const appBaseUrl = process.env.APP_BASE_URL; // frontend
-const apiBaseUrl = process.env.API_BASE_URL; // backend public
+const appBaseUrl = process.env.APP_BASE_URL; 
+const apiBaseUrl = process.env.API_BASE_URL; 
 
+ 
 const createOrder = async (req, res) => {
   try {
     const {
@@ -26,46 +27,48 @@ const createOrder = async (req, res) => {
       totalAmount,
       orderDate,
       orderUpdateDate,
-      paymentId,
-      payerId,
       cartId,
     } = req.body;
 
-  
+    if (!process.env.PAYHERE_MERCHANT_ID || !process.env.PAYHERE_MERCHANT_SECRET) {
+      console.error("PayHere env missing");
+      return res.status(500).json({ success: false, message: "PayHere not configured" });
+    }
 
+    if (!totalAmount || isNaN(Number(totalAmount)) || Number(totalAmount) <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid total amount" });
+    }
 
-    // Persist order first
+    const amountStr = Number(totalAmount).toFixed(2); // "10.00"
     const newlyCreatedOrder = await Order.create({
       userId,
-      cartId: req.body.cartId || "",
+      cartId: cartId || "",
       cartItems,
       addressInfo,
-      orderStatus,
+      orderStatus: orderStatus || "PENDING",
       paymentMethod: "payhere",
-      paymentStatus,
-      totalAmount,
-      orderDate,
-      orderUpdateDate,
-      paymentId: "",     // to be filled after IPN/notify
-      payerId: "",       // unused for PayHere
+      paymentStatus: paymentStatus || "PENDING",
+      totalAmount: Number(totalAmount),
+      orderDate: orderDate || new Date(),
+      orderUpdateDate: orderUpdateDate || new Date(),
+      paymentId: "", // filled by IPN
+      payerId: "",
     });
 
     const orderId = String(newlyCreatedOrder._id);
     const currency = "LKR";
-    const amountStr = toAmountTwoDecimals(totalAmount);
 
-    // Prepare PayHere payment object for frontend SDK
     const payment = {
-      sandbox: isSandbox(), // PayHere SDK flag
-      merchant_id: merchantId,
-      return_url: `${appBaseUrl}/payhere/return?orderId=${orderId}`,
-      cancel_url: `${appBaseUrl}/payhere/cancel?orderId=${orderId}`,
-      notify_url: `${apiBaseUrl}/api/shop/order/notify`,
+      sandbox: isSandbox(),
+      merchant_id: process.env.PAYHERE_MERCHANT_ID,
+       return_url: `${process.env.APP_BASE_URL}/payhere-return?orderId=${orderId}`,
+      cancel_url: `${process.env.APP_BASE_URL}/payhere-cancel?orderId=${orderId}`,
+      notify_url: `${process.env.API_BASE_URL}/api/shop/order/notify`,
       order_id: orderId,
-      items: "Clothing Order", // or join titles if you like
+      items: "Cart Purchase",
+      
       amount: amountStr,
       currency,
-      // customer fields (PayHere requires)
       first_name: addressInfo?.firstName || "Customer",
       last_name: addressInfo?.lastName || "",
       email: addressInfo?.email || "",
@@ -75,28 +78,40 @@ const createOrder = async (req, res) => {
       country: addressInfo?.country || "Sri Lanka",
     };
 
-    // Compute secure hash (checkout signature)
-    payment.hash = generateCheckoutHash({
-      merchantId,
-      orderId,
-      amount: amountStr,
-      currency,
-      merchantSecret,
-    });
+    try {
+      payment.hash = generateCheckoutHash({
+        merchantId: process.env.PAYHERE_MERCHANT_ID,
+        orderId,
+        amount: amountStr,
+        currency,
+        merchantSecret: process.env.PAYHERE_MERCHANT_SECRET,
+      });
+       // If your SDK variant expects this key:
+     payment.hash_value = payment.hash;
+        console.log("PayHere init →", {
+            mode: process.env.PAYHERE_MODE,
+            merchant_id: payment.merchant_id,
+            order_id: payment.order_id,
+            amount: payment.amount,
+            currency: payment.currency,
+            return_url: payment.return_url,
+            cancel_url: payment.cancel_url,
+            notify_url: payment.notify_url,
+            origin_hint: process.env.APP_BASE_URL, // must match a validated domain host
+          });
 
-    return res.status(200).json({
-      success: true,
-      payment,     // <-- frontend will call payhere.startPayment(payment)
-      orderId,
-    });
+    } catch (err) {
+      console.error("Error generating PayHere hash:", err);
+      return res.status(500).json({ success: false, message: "Payment signature error" });
+    }
+
+      return res.status(200).json({ success: true, payment, orderId });
   } catch (e) {
-    console.log(e);
-    res.status(500).json({
-      success: false,
-      message: "Some error occured!",
-    });
+    console.error("createOrder error:", e);
+    return res.status(500).json({ success: false, message: "Some error occured!" });
   }
 };
+
 
 // IPN / Notify handler (PayHere -> Your server)
 const handlePayHereNotify = async (req, res) => {

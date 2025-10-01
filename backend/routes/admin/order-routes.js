@@ -1,33 +1,19 @@
-const mongoose = require("mongoose");
+const express = require("express");
+const {
+  getAllOrdersOfAllUsers,
+  getOrderDetailsForAdmin,
+  updateOrderStatus,
+} = require("../../controllers/admin/order-controller");
 
-const OrderSchema = new mongoose.Schema({
-  userId: String,
-  cartId: String,
-  cartItems: [
-    {
-      productId: String,
-      title: String,
-      image: String,
-      price: String,
-      quantity: Number,
-    },
-  ],
-  addressInfo: {
-    addressId: String,
-    address: String,
-    city: String,
-    pincode: String,
-    phone: String,
-    notes: String,
-  },
-  orderStatus: String,
-  paymentMethod: String,
-  paymentStatus: String,
-  totalAmount: Number,
-  orderDate: Date,
-  orderUpdateDate: Date,
-  paymentId: String,
-  payerId: String,
-});
+const router = express.Router();
 
-module.exports = mongoose.model("Order", OrderSchema);
+// GET all
+router.get("/get", getAllOrdersOfAllUsers);
+
+// GET one
+router.get("/details/:id", getOrderDetailsForAdmin);
+
+// PUT update status
+router.put("/update/:id", updateOrderStatus);
+
+module.exports = router;
