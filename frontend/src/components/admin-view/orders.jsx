@@ -20,9 +20,12 @@ import {
 } from "@/store/admin/order-slice";
 import { Badge } from "../ui/badge";
 
+// ⬇️ add this import
+import { exportOrdersListPDF } from "../../utils/pdf/adminOrderReports";
+
 function AdminOrdersView() {
   const [openDetailsDialog, setOpenDetailsDialog] = useState(false);
-  const [query, setQuery] = useState(""); // ← search text
+  const [query, setQuery] = useState(""); // search text
   const { orderList, orderDetails } = useSelector((state) => state.adminOrder);
   const dispatch = useDispatch();
 
@@ -91,12 +94,25 @@ function AdminOrdersView() {
     <Card>
       <CardHeader className="flex items-center justify-between gap-3">
         <CardTitle>All Orders</CardTitle>
-        <div className="w-full max-w-lg">
+        <div className="flex items-center gap-2 w-full max-w-lg">
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search by ID, status, date, customer, phone or city…"
+            aria-label="Search orders"
           />
+          {/* ⬇️ new: export exactly what's visible */}
+          <Button
+            variant="outline"
+            onClick={() =>
+              exportOrdersListPDF(filtered, {
+                title: "Orders Report",
+                brandName: "Shopify",
+              })
+            }
+          >
+            Download PDF (All)
+          </Button>
         </div>
       </CardHeader>
 
@@ -125,7 +141,11 @@ function AdminOrdersView() {
                   <TableCell>{safeDate(orderItem?.orderDate)}</TableCell>
 
                   <TableCell>
-                    <Badge className={`py-1 px-3 ${statusColor(orderItem?.orderStatus)}`}>
+                    <Badge
+                      className={`py-1 px-3 ${statusColor(
+                        orderItem?.orderStatus
+                      )}`}
+                    >
                       {orderItem?.orderStatus || "pending"}
                     </Badge>
                   </TableCell>
@@ -142,7 +162,11 @@ function AdminOrdersView() {
                         dispatch(resetOrderDetails());
                       }}
                     >
-                      <Button onClick={() => handleFetchOrderDetails(orderItem?._id)}>
+                      <Button
+                        onClick={() =>
+                          handleFetchOrderDetails(orderItem?._id)
+                        }
+                      >
                         View Details
                       </Button>
                       <AdminOrderDetailsView orderDetails={orderDetails} />
@@ -152,7 +176,10 @@ function AdminOrdersView() {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground">
+                <TableCell
+                  colSpan={5}
+                  className="text-center text-muted-foreground"
+                >
                   {query ? "No matches." : "No orders available."}
                 </TableCell>
               </TableRow>
