@@ -70,11 +70,13 @@ function ShoppingAccount() {
     setDeleting(false);
     }
   };
+  
 
 
   const safeDate = (ts) => {
     const d = new Date(ts);
     return isNaN(d.getTime()) ? "-" : d.toLocaleString();
+    
   };
 
   return (
@@ -139,6 +141,12 @@ function ShoppingAccount() {
                   <p className="text-sm text-muted-foreground">
                     Keep your email up to date and use a strong password. If you
                     need to change your password, go to the <b>Security</b> tab.
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Add many addresses for easy ordering, go to the <b>Addresse</b> tab.
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    If you want to delete your account, go to the <b>Addresse</b> tab.
                   </p>
                 </div>
               </div>
