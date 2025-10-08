@@ -19,8 +19,8 @@ const UserSchema = new mongoose.Schema(
       lowercase: true,
       match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "Enter a valid email"],
     },
-    password: { type: String, required: true },
-    role: { type: String, enum: ["user", "admin"], default: "user" },
+    password: { type: String, required: true ,select: false},
+    role: { type: String, enum: ["user", "admin"], default: "user" ,required: true},
   },
   { timestamps: true }
 );
