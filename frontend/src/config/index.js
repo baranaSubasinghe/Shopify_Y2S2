@@ -1,3 +1,5 @@
+// e.g. frontend/src/config/index.js (or wherever your config lives)
+
 export const registerFormControls = [
   {
     name: "userName",
@@ -21,12 +23,12 @@ export const registerFormControls = [
     type: "password",
   },
   {
-  name: "confirmPassword",
-  label: "Confirm Password",
-  placeholder: "Re-enter your password",
-  componentType: "input",
-  type: "password",
-},
+    name: "confirmPassword",
+    label: "Confirm Password",
+    placeholder: "Re-enter your password",
+    componentType: "input",
+    type: "password",
+  },
 ];
 
 export const loginFormControls = [
@@ -109,46 +111,14 @@ export const addProductFormElements = [
 ];
 
 export const shoppingViewHeaderMenuItems = [
-  {
-    id: "home",
-    label: "Home",
-    path: "/shop/home",
-  },
-  {
-    id: "products",
-    label: "Products",
-    path: "/shop/listing",
-  },
-  {
-    id: "men",
-    label: "Men",
-    path: "/shop/listing",
-  },
-  {
-    id: "women",
-    label: "Women",
-    path: "/shop/listing",
-  },
-  {
-    id: "kids",
-    label: "Kids",
-    path: "/shop/listing",
-  },
-  {
-    id: "footwear",
-    label: "Footwear",
-    path: "/shop/listing",
-  },
-  {
-    id: "accessories",
-    label: "Accessories",
-    path: "/shop/listing",
-  },
-  {
-    id: "search",
-    label: "Search",
-    path: "/shop/search",
-  },
+  { id: "home", label: "Home", path: "/shop/home" },
+  { id: "products", label: "Products", path: "/shop/listing" },
+  { id: "men", label: "Men", path: "/shop/listing" },
+  { id: "women", label: "Women", path: "/shop/listing" },
+  { id: "kids", label: "Kids", path: "/shop/listing" },
+  { id: "footwear", label: "Footwear", path: "/shop/listing" },
+  { id: "accessories", label: "Accessories", path: "/shop/listing" },
+  { id: "search", label: "Search", path: "/shop/search" },
 ];
 
 export const categoryOptionsMap = {
@@ -193,6 +163,7 @@ export const sortOptions = [
   { id: "title-ztoa", label: "Title: Z to A" },
 ];
 
+// --- Address form controls with input constraints ---
 export const addressFormControls = [
   {
     label: "Address",
@@ -200,6 +171,8 @@ export const addressFormControls = [
     componentType: "input",
     type: "text",
     placeholder: "Enter your address",
+    autoComplete: "street-address",
+    maxLength: 120,
   },
   {
     label: "City",
@@ -207,25 +180,43 @@ export const addressFormControls = [
     componentType: "input",
     type: "text",
     placeholder: "Enter your city",
+    // ❗ allow only letters and spaces
+    pattern: "^[A-Za-z ]*$",
+    inputMode: "text",
+    maxLength: 50,
+    autoComplete: "address-level2",
   },
   {
     label: "Pincode",
     name: "pincode",
     componentType: "input",
+    // keep text to preserve leading zeros; restrict via pattern
     type: "text",
     placeholder: "Enter your pincode",
+    inputMode: "numeric",
+    // 🇱🇰 strict 5 digits (change to ^\\d{3,6}$ if you prefer relaxed)
+    pattern: "^\\d{5}$",
+    maxLength: 5,
+    autoComplete: "postal-code",
   },
   {
     label: "Phone",
     name: "phone",
     componentType: "input",
+    // keep text to preserve leading zero; restrict via pattern
     type: "text",
     placeholder: "Enter your phone number",
+    inputMode: "tel",
+    // 🇱🇰 10 digits starting with 0
+    pattern: "^0\\d{9}$",
+    maxLength: 10,
+    autoComplete: "tel-national",
   },
   {
     label: "Notes",
     name: "notes",
     componentType: "textarea",
     placeholder: "Enter any additional notes",
+    maxLength: 200,
   },
 ];
