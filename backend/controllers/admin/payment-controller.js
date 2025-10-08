@@ -1,19 +1,38 @@
 const Order = require("../../models/Order");
 const PDFDocument = require("pdfkit");
+const User  = require("../../models/User");
 
 // GET /api/admin/payments
 // Returns normalized payments list for the Admin UI
 const getAllPayments = async (_req, res) => {
   try {
-    const list = await Order.find({ paymentMethod: "payhere" })
+   const list = await Order.find({ paymentMethod: "payhere" })
       .sort({ orderDate: -1 })
       .populate({ path: "userId", select: "email" }) // fallback email
       .lean();
 
+    
+    // Build a user map for cases where populate didn't work (userId stored as string)
+    const rawIds = list
+      .map(o => o?.userId && (o.userId._id || o.userId))   // handle populated or raw
+      .filter(Boolean)
+     .map(String);
+    const uniqueIds = [...new Set(rawIds)];
+    let usersById = new Map();
+    if (uniqueIds.length) {
+      const users = await User.find({ _id: { $in: uniqueIds } }).select("email").lean();
+      users.forEach(u => usersById.set(String(u._id), u.email));
+    }
+
+
     const data = list.map((o) => ({
       _id: String(o._id),
       paymentId: o.paymentId || "-",
-      userEmail: o?.addressInfo?.email || o?.userId?.email || "-",
+            userEmail:
+       o?.addressInfo?.email ||                  // prefer address email
+        o?.userId?.email ||                       // populated email
+        usersById.get(String(o?.userId?._id || o?.userId || "")) || // fallback lookup
+        "-",
       totalAmount: Number(o.totalAmount || 0),
       paymentStatus: (o.paymentStatus || "PENDING").toUpperCase(),
       paymentMethod: (o.paymentMethod || "payhere").toUpperCase(),
