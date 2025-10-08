@@ -28,6 +28,14 @@ const initialFormData = {
   averageReview: 0,
 };
 
+// --- helper: coerce to non-negative number ('' stays '')
+const toNonNegativeNumber = (v) => {
+  if (v === "" || v === null || typeof v === "undefined") return "";
+  const n = Number(String(v).replace(/[^\d.]/g, "")); // remove non-numeric except dot
+  if (Number.isNaN(n)) return 0;
+  return n < 0 ? 0 : n;
+};
+
 function AdminProducts() {
   const [openCreateProductsDialog, setOpenCreateProductsDialog] = useState(false);
   const [formData, setFormData] = useState(initialFormData);
@@ -42,8 +50,46 @@ function AdminProducts() {
   const { productList } = useSelector((state) => state.adminProducts);
   const dispatch = useDispatch();
 
+  // --- sanitize numeric fields any time formData changes
+  useEffect(() => {
+    setFormData((prev) => {
+      const next = { ...prev };
+      // only sanitize when it’s actually negative or has a minus sign
+      const p = String(prev.price);
+      const sp = String(prev.salePrice);
+      const ts = String(prev.totalStock);
+
+      const needsFix =
+        (p && (p.includes("-") || Number(p) < 0)) ||
+        (sp && (sp.includes("-") || Number(sp) < 0)) ||
+        (ts && (ts.includes("-") || Number(ts) < 0));
+
+      if (!needsFix) return prev;
+
+      next.price = toNonNegativeNumber(prev.price);
+      next.salePrice = toNonNegativeNumber(prev.salePrice);
+      next.totalStock = toNonNegativeNumber(prev.totalStock);
+      return next;
+    });
+  }, [formData.price, formData.salePrice, formData.totalStock]);
+
   function onSubmit(event) {
     event.preventDefault();
+
+    // final guard before dispatch
+    const price = Number(formData.price || 0);
+    const salePrice = Number(formData.salePrice || 0);
+    const totalStock = Number(formData.totalStock || 0);
+
+    if (price < 0 || salePrice < 0 || totalStock < 0) {
+      toast.error("Price, Sale Price, and Total Stock must be 0 or greater.");
+      return;
+    }
+
+    if (salePrice > price) {
+      toast.error("Sale Price cannot be greater than Price.");
+      return;
+    }
 
     currentEditedId !== null
       ? dispatch(editProduct({ id: currentEditedId, formData })).then((data) => {
@@ -76,10 +122,23 @@ function AdminProducts() {
   }
 
   function isFormValid() {
-    return Object.keys(formData)
+    const baseValid = Object.keys(formData)
       .filter((key) => key !== "averageReview")
       .map((key) => formData[key] !== "")
       .every((x) => x);
+
+    const price = Number(formData.price || 0);
+    const salePrice = Number(formData.salePrice || 0);
+    const totalStock = Number(formData.totalStock || 0);
+
+    const numbersOk =
+      price >= 0 &&
+      salePrice >= 0 &&
+      totalStock >= 0 &&
+      // optional: sale price should not exceed price
+      salePrice <= price;
+
+    return baseValid && numbersOk;
   }
 
   useEffect(() => {
@@ -100,10 +159,10 @@ function AdminProducts() {
   }, [productList, search]);
 
   const onDownloadPDF = () => {
-     const ok = generateProductsPDF(filteredProducts);
-  if (!ok) {
-    toast.error("Failed to generate PDF. Check console for details.");
-  }
+    const ok = generateProductsPDF(filteredProducts);
+    if (!ok) {
+      toast.error("Failed to generate PDF. Check console for details.");
+    }
   };
 
   return (
