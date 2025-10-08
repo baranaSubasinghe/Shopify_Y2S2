@@ -9,7 +9,8 @@ import AdminDashboard from "./pages/admin-view/dashboard";
 import AdminProducts from "./pages/admin-view/products";
 import AdminOrders from "./pages/admin-view/orders";
 import AdminFeatures from "./pages/admin-view/features";
-//import AdminReviewsPage from "./pages/admin-view/reviews";
+import AdminUsersPage from "@/pages/admin-view/users";
+import AdminPaymentsPage from "@/pages/admin-view/payments"; // ✅ NEW
 
 import ShoppingLayout from "./components/shopping-view/layout";
 import NotFound from "./pages/not-found";
@@ -23,19 +24,12 @@ import { useDispatch, useSelector } from "react-redux";
 import { useEffect } from "react";
 import { checkAuth } from "./store/auth-slice";
 import { Skeleton } from "@/components/ui/skeleton";
-//import PaypalReturnPage from "./pages/shopping-view/paypal-return";
-//import PaymentSuccessPage from "./pages/shopping-view/payment-success";
 import SearchProducts from "./pages/shopping-view/search";
-import AdminUsersPage from "@/pages/admin-view/users";
 import PayHereReturn from "./pages/shopping-view/payhere-return";
 import PayHereCancel from "./pages/shopping-view/payhere-cancel";
 
-
-
 function App() {
-  const { user, isAuthenticated, isLoading } = useSelector(
-    (state) => state.auth
-  );
+  const { user, isAuthenticated, isLoading } = useSelector((state) => state.auth);
   const dispatch = useDispatch();
 
   useEffect(() => {
@@ -44,20 +38,12 @@ function App() {
 
   if (isLoading) return <Skeleton className="w-[800] bg-black h-[600px]" />;
 
-  console.log(isLoading, user);
-
   return (
     <div className="flex flex-col overflow-hidden bg-white">
-   
       <Routes>
         <Route
           path="/"
-          element={
-            <CheckAuth
-              isAuthenticated={isAuthenticated}
-              user={user}
-            ></CheckAuth>
-          }
+          element={<CheckAuth isAuthenticated={isAuthenticated} user={user}></CheckAuth>}
         />
         <Route
           path="/auth"
@@ -70,8 +56,8 @@ function App() {
           <Route path="login" element={<AuthLogin />} />
           <Route path="register" element={<AuthRegister />} />
           <Route path="reviews" element={<AdminReviewsPage />} />
-
         </Route>
+
         <Route
           path="/admin"
           element={
@@ -81,12 +67,14 @@ function App() {
           }
         >
           <Route path="dashboard" element={<AdminDashboard />} />
-          <Route path="products" element={<AdminProducts />} />  
-          <Route path="orders" element={<AdminOrders />} /> 
-          <Route path="features" element={<AdminFeatures />} />  
+          <Route path="products" element={<AdminProducts />} />
+          <Route path="orders" element={<AdminOrders />} />
+          <Route path="features" element={<AdminFeatures />} />
           <Route path="users" element={<AdminUsersPage />} />
           <Route path="reviews" element={<AdminReviewsPage />} />
+          <Route path="payments" element={<AdminPaymentsPage />} /> {/* ✅ NEW */}
         </Route>
+
         <Route
           path="/shop"
           element={
@@ -99,9 +87,9 @@ function App() {
           <Route path="listing" element={<ShoppingListing />} />
           <Route path="checkout" element={<ShoppingCheckout />} />
           <Route path="account" element={<ShoppingAccount />} />
-       
           <Route path="search" element={<SearchProducts />} />
         </Route>
+
         <Route path="/unauth-page" element={<UnauthPage />} />
         <Route path="*" element={<NotFound />} />
 

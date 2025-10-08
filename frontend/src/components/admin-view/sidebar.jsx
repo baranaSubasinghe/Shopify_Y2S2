@@ -5,6 +5,7 @@ import {
   ShoppingBasket,
   User,
   MessageSquare,
+  CreditCard, // ✅ added
 } from "lucide-react";
 
 import { Fragment } from "react";
@@ -12,36 +13,12 @@ import { useNavigate } from "react-router-dom";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../ui/sheet";
 
 const adminSidebarMenuItems = [
-  {
-    id: "dashboard",
-    label: "Dashboard",
-    path: "/admin/dashboard",
-    icon: <LayoutDashboard />,
-  },
-  {
-    id: "products",
-    label: "Products",
-    path: "/admin/products",
-    icon: <ShoppingBasket />,
-  },
-  {
-    id: "orders",
-    label: "Orders",
-    path: "/admin/orders",
-    icon: <BadgeCheck />,
-  },
-   {
-    id: "user",
-    label: "Users",
-    path: "/admin/users",
-    icon: <User />,
-  },
-   {
-    id: "reviews",
-    label: "reviews",
-    path: "/admin/reviews",
-    icon: <MessageSquare  />,
-  },
+  { id: "dashboard", label: "Dashboard", path: "/admin/dashboard", icon: <LayoutDashboard /> },
+  { id: "products",  label: "Products",  path: "/admin/products",  icon: <ShoppingBasket /> },
+  { id: "orders",    label: "Orders",    path: "/admin/orders",    icon: <BadgeCheck /> },
+  { id: "user",      label: "Users",     path: "/admin/users",     icon: <User /> },
+  { id: "reviews",   label: "reviews",   path: "/admin/reviews",   icon: <MessageSquare /> },
+  { id: "payments",  label: "Payments",  path: "/admin/payments",  icon: <CreditCard /> }, // ✅ new
 ];
 
 function MenuItems({ setOpen }) {
@@ -56,7 +33,7 @@ function MenuItems({ setOpen }) {
             navigate(menuItem.path);
             setOpen ? setOpen(false) : null;
           }}
-          className="flex cursor-pointer text-xl items-center gap-2 rounded-md px-3 py-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="flex cursor-pointer text-xl items-center gap-2 rounded-md px-3 py-2 text-foreground hover:bg-muted"
         >
           {menuItem.icon}
           <span>{menuItem.label}</span>
@@ -84,6 +61,7 @@ function AdminSideBar({ open, setOpen }) {
           </div>
         </SheetContent>
       </Sheet>
+
       <aside className="hidden w-64 flex-col border-r bg-background p-6 lg:flex">
         <div
           onClick={() => navigate("/admin/dashboard")}
