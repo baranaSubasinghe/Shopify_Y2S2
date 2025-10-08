@@ -8,6 +8,7 @@ const {
   verifyIPNSignature,
 } = require("../../helpers/payhere");
 const PDFDocument = require("pdfkit");
+const mongoose = require("mongoose");
 
 const merchantId = process.env.PAYHERE_MERCHANT_ID;
 const merchantSecret = process.env.PAYHERE_MERCHANT_SECRET;
@@ -44,7 +45,7 @@ const createOrder = async (req, res) => {
 
     const amountStr = Number(totalAmount).toFixed(2); // "10.00"
     const newlyCreatedOrder = await Order.create({
-      userId,
+      userId: mongoose.isValidObjectId(userId) ? new mongoose.Types.ObjectId(userId) : userId,
       cartId: cartId || "",
       cartItems,
       addressInfo,
