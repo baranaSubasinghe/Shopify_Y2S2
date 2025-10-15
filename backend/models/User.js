@@ -20,6 +20,8 @@ const UserSchema = new mongoose.Schema(
       match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "Enter a valid email"],
     },
     password: { type: String, required: true ,select: false},
+    resetPasswordToken:   { type: String, index: true, default: null },
+    resetPasswordExpires: { type: Date,   default: null },
     role: { type: String, enum: ["user", "admin"], default: "user" ,required: true},
   },
   { timestamps: true }

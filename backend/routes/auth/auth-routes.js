@@ -1,4 +1,5 @@
 const express = require("express");
+const crypto = require("crypto");
 const { body } = require("express-validator");
 const validate = require("../../middleware/validate");
 const {
@@ -6,6 +7,8 @@ const {
   loginUser,
   logoutUser,
   authMiddleware,
+  forgotPassword,
+  resetPassword
 } = require("../../controllers/auth/auth-controller");
 
 // regexes
@@ -52,5 +55,7 @@ router.get("/check-auth", authMiddleware, (req, res) => {
     user,
   });
 });
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
 
 module.exports = router;
