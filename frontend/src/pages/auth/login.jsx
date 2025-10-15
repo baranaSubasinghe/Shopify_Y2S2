@@ -2,14 +2,11 @@ import CommonForm from "@/components/common/form";
 import { loginFormControls } from "@/config";
 import { loginUser } from "@/store/auth-slice";
 import { useState } from "react";
-import { useDispatch } from "react-redux";
-import { Link } from "react-router-dom";
+import { useDispatch, useSelector } from "react-redux";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 
-const initialState = {
-  email: "",
-  password: "",
-};
+const initialState = { email: "", password: "" };
 
 // same email regex as register
 const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -17,6 +14,11 @@ const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 function AuthLogin() {
   const [formData, setFormData] = useState(initialState);
   const dispatch = useDispatch();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // optional: grab role from store if already populated after login
+  const { user } = useSelector((s) => s.auth);
 
   async function onSubmit(event) {
     event.preventDefault();
@@ -34,8 +36,19 @@ function AuthLogin() {
     }
 
     const res = await dispatch(loginUser({ email, password }));
+
     if (res?.payload?.success) {
       toast.success(res?.payload?.message || "Login successful!");
+
+      // figure out where to go:
+      const from = location.state?.from?.pathname; // where the guard sent us from
+      const roleFromPayload = res?.payload?.data?.user?.role;
+      const role = roleFromPayload || user?.role;
+
+      const fallback =
+        role === "admin" ? "/admin/dashboard" : "/shop/home";
+
+      navigate(from || fallback, { replace: true });
     } else {
       toast.error(res?.payload?.message || "Login failed!");
     }
@@ -57,13 +70,20 @@ function AuthLogin() {
           </Link>
         </p>
       </div>
+
       <CommonForm
         formControls={loginFormControls}
-        buttonText={"Sign In"}
+        buttonText="Sign In"
         formData={formData}
         setFormData={setFormData}
         onSubmit={onSubmit}
       />
+
+      <p className="text-sm mt-2 text-center">
+        <Link to="/auth/forgot-password" className="underline text-primary">
+          Forgot password?
+        </Link>
+      </p>
     </div>
   );
 }
