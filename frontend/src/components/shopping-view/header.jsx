@@ -78,9 +78,11 @@ function HeaderRightContent() {
     dispatch(logoutUser());
   }
 
-  useEffect(() => {
-    dispatch(fetchCartItems(user?.id));
-  }, [dispatch]);
+    useEffect(() => {
+    const uid = user?._id || user?.id;
+    if (!uid) return;                // wait until user is known
+    dispatch(fetchCartItems(uid));   // ✅ correct id every time
+  }, [dispatch, user?._id, user?.id]);
 
   console.log(cartItems, "sangam");
 

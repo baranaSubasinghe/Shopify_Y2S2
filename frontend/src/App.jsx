@@ -1,11 +1,14 @@
-import { Route, Routes } from "react-router-dom";
+
+import { Route, Routes, Navigate } from "react-router-dom";
+import { useEffect } from "react";
+import { useDispatch, useSelector } from "react-redux"; // ✅ <-- this line is essential
+
 import AuthLayout from "./components/auth/layout";
 import AuthLogin from "./pages/auth/login";
 import AuthRegister from "./pages/auth/register";
 import ForgotPassword from "./pages/auth/forgot-password";
 import ResetPassword from "./pages/auth/reset-password";
 import AdminReviewsPage from "./pages/admin-view/reviews";
-
 import AdminLayout from "./components/admin-view/layout";
 import AdminDashboard from "./pages/admin-view/dashboard";
 import AdminProducts from "./pages/admin-view/products";
@@ -15,21 +18,22 @@ import AdminUsersPage from "@/pages/admin-view/users";
 import AdminPaymentsPage from "@/pages/admin-view/payments";
 
 import ShoppingLayout from "./components/shopping-view/layout";
-import NotFound from "./pages/not-found";
 import ShoppingHome from "./pages/shopping-view/home";
 import ShoppingListing from "./pages/shopping-view/listing";
 import ShoppingCheckout from "./pages/shopping-view/checkout";
 import ShoppingAccount from "./pages/shopping-view/account";
-import CheckAuth from "./components/common/check-auth";
-import UnauthPage from "./pages/unauth-page";
-import { useDispatch, useSelector } from "react-redux";
-import { useEffect } from "react";
-import { checkAuth } from "./store/auth-slice";
-import { Skeleton } from "@/components/ui/skeleton";
 import SearchProducts from "./pages/shopping-view/search";
+
+import UnauthPage from "./pages/unauth-page";
+import NotFound from "./pages/not-found";
 import PayHereReturn from "./pages/shopping-view/payhere-return";
 import PayHereCancel from "./pages/shopping-view/payhere-cancel";
-
+import CheckAuth from "./components/common/check-auth";
+import AiChatbot from "./components/ai/chatbot";
+import { Skeleton } from "@/components/ui/skeleton";
+import { checkAuth } from "./store/auth-slice";
+import axios from "axios";
+axios.defaults.withCredentials = true;
 function App() {
   const { user, isAuthenticated, isLoading } = useSelector((state) => state.auth);
   const dispatch = useDispatch();
@@ -43,6 +47,15 @@ function App() {
   return (
     <div className="flex flex-col overflow-hidden bg-white">
       <Routes>
+        {/* ✅ Root: send guests to login, authed users to home (or admin) */}
+        <Route
+          path="/"
+          element={
+            isAuthenticated
+              ? <Navigate to={user?.role === "admin" ? "/admin/dashboard" : "/shop/home"} replace />
+              : <Navigate to="/auth/login" replace />
+          }
+        />
 
         {/* PUBLIC AUTH ROUTES */}
         <Route path="/auth" element={<AuthLayout />}>
@@ -90,8 +103,12 @@ function App() {
         <Route path="/unauth-page" element={<UnauthPage />} />
         <Route path="/payhere-return" element={<PayHereReturn />} />
         <Route path="/payhere-cancel" element={<PayHereCancel />} />
+
+        {/* catch-all last */}
         <Route path="*" element={<NotFound />} />
       </Routes>
+
+     
     </div>
   );
 }

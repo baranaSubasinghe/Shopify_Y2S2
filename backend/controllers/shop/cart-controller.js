@@ -37,16 +37,41 @@ const addToCart = async (req, res) => {
       cart.items[findCurrentProductIndex].quantity += quantity;
     }
 
-    await cart.save();
-    res.status(200).json({
-      success: true,
-      data: cart,
+      await cart.save();
+
+    // ✅ Re-load populated cart so frontend gets the same shape it expects
+    const fresh = await Cart.findOne({ userId }).populate({
+      path: "items.productId",
+      select: "image title price salePrice",
     });
-  } catch (error) {
-    console.log(error);
-    res.status(500).json({
+
+    const validItems = fresh.items.filter((it) => it.productId);
+    if (validItems.length < fresh.items.length) {
+      fresh.items = validItems;
+      await fresh.save();
+    }
+
+    const populateCartItems = validItems.map((item) => ({
+      productId: item.productId._id,
+      image: item.productId.image,
+      title: item.productId.title,
+      price: item.productId.price,
+      salePrice: item.productId.salePrice,
+      quantity: item.quantity,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...fresh._doc,
+        items: populateCartItems,
+      },
+    });
+  } catch (e) {
+    console.log(e);
+    return res.status(500).json({
       success: false,
-      message: "Error",
+      message: "Server error",
     });
   }
 };
