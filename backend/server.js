@@ -20,6 +20,7 @@ const shopSearchRouter = require("./routes/shop/search-routes");
 const shopReviewRouter = require("./routes/shop/review-routes");
 const commonFeatureRouter = require("./routes/common/feature-routes");
 const adminPaymentRouter = require("./routes/admin/payment-routes");
+const aiRouter = require("./routes/common/ai-routes");
 
 /* -------- Config -------- */
 const PORT = Number(process.env.PORT || 5001);
@@ -117,6 +118,7 @@ app.use("/api/shop/order", shopOrderRouter);
 app.use("/api/shop/search", shopSearchRouter);
 app.use("/api/shop/review", shopReviewRouter);
 app.use("/api/common/feature", commonFeatureRouter);
+app.use("/api/ai", aiRouter);
 
 /* -------- Health -------- */
 app.get("/api/health", (_req, res) =>
