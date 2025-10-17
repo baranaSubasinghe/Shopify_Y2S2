@@ -22,6 +22,8 @@ const commonFeatureRouter = require("./routes/common/feature-routes");
 const adminPaymentRouter  = require("./routes/admin/payment-routes");
 const shopPaymentRouter   = require("./routes/shop/payment-routes"); // PayHere IPN
 
+const aiRouter = require("./routes/common/ai-routes");
+
 /* -------- Config -------- */
 const PORT        = Number(process.env.PORT || 5001);
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -103,6 +105,25 @@ app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true })); // needed for PayHere IPN (form-encoded)
 
 /* -------- Health (place BEFORE 404 catcher) -------- */
+/* -------- Routes -------- */
+app.use("/api/auth", authRouter);
+app.use("/api/admin/products", adminProductsRouter);
+app.use("/api/admin/orders", adminOrderRouter);
+app.use("/api/admin/users", adminUsersRouter);
+app.use("/api/admin/reviews", adminReviewsRouter);
+app.use("/api/admin/payments", adminPaymentRouter);
+app.use("/api/user/account", userAccountRouter);
+
+app.use("/api/shop/products", shopProductsRouter);
+app.use("/api/shop/cart", shopCartRouter);
+app.use("/api/shop/address", shopAddressRouter);
+app.use("/api/shop/order", shopOrderRouter);
+app.use("/api/shop/search", shopSearchRouter);
+app.use("/api/shop/review", shopReviewRouter);
+app.use("/api/common/feature", commonFeatureRouter);
+app.use("/api/ai", aiRouter);
+
+/* -------- Health -------- */
 app.get("/api/health", (_req, res) =>
   res.json({ ok: true, ts: Date.now(), env: process.env.NODE_ENV || "dev", db: DBNAME })
 );

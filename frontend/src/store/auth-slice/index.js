@@ -101,12 +101,16 @@ const authSlice = createSlice({
         state.isLoading = true;
       })
       .addCase(loginUser.fulfilled, (state, action) => {
-        console.log(action);
-
-        state.isLoading = false;
-        state.user = action.payload.success ? action.payload.user : null;
-        state.isAuthenticated = action.payload.success;
-      })
+  state.isLoading = false;
+  if (action.payload?.success && action.payload?.user) {
+    const u = action.payload.user;
+    state.user = { ...u, _id: u._id || u.id };   // ✅ normalize
+    state.isAuthenticated = true;
+  } else {
+    state.user = null;
+    state.isAuthenticated = false;
+  }
+})
       .addCase(loginUser.rejected, (state, action) => {
         state.isLoading = false;
         state.user = null;
@@ -116,10 +120,16 @@ const authSlice = createSlice({
         state.isLoading = true;
       })
       .addCase(checkAuth.fulfilled, (state, action) => {
-        state.isLoading = false;
-        state.user = action.payload.success ? action.payload.user : null;
-        state.isAuthenticated = action.payload.success;
-      })
+  state.isLoading = false;
+  if (action.payload?.success && action.payload?.user) {
+    const u = action.payload.user;
+    state.user = { ...u, _id: u._id || u.id };   // ✅ normalize
+    state.isAuthenticated = true;
+  } else {
+    state.user = null;
+    state.isAuthenticated = false;
+  }
+})
       .addCase(checkAuth.rejected, (state, action) => {
         state.isLoading = false;
         state.user = null;
