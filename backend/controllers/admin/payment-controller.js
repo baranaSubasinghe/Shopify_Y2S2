@@ -1,192 +1,292 @@
-const Order = require("../../models/Order");
-const PDFDocument = require("pdfkit");
-const User  = require("../../models/User");
+// backend/controllers/admin/payment-controller.js
+const mongoose = require("mongoose");
+const PDFDocument = require("pdfkit"); // used by exportPaymentsPDF
+const Order   = require("../../models/Order");
+const Payment = require("../../models/Payment"); // ✅ sync with this collection
 
-// GET /api/admin/payments
-// Returns normalized payments list for the Admin UI
-const getAllPayments = async (_req, res) => {
-  try {
-   const list = await Order.find({ paymentMethod: "payhere" })
-      .sort({ orderDate: -1 })
-      .populate({ path: "userId", select: "email" }) // fallback email
-      .lean();
+/* ------------------------ helpers ------------------------ */
+function toDate(d, endOfDay = false) {
+  if (!d) return null;
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return null;
+  if (endOfDay) dt.setHours(23, 59, 59, 999);
+  return dt;
+}
 
-    
-    // Build a user map for cases where populate didn't work (userId stored as string)
-    const rawIds = list
-      .map(o => o?.userId && (o.userId._id || o.userId))   // handle populated or raw
-      .filter(Boolean)
-     .map(String);
-    const uniqueIds = [...new Set(rawIds)];
-    let usersById = new Map();
-    if (uniqueIds.length) {
-      const users = await User.find({ _id: { $in: uniqueIds } }).select("email").lean();
-      users.forEach(u => usersById.set(String(u._id), u.email));
+function makeFilterFromQuery(qs = {}) {
+  const { status, method, q, from, to } = qs;
+  const filter = {};
+  if (status) filter.paymentStatus = status;
+  if (method) filter.paymentMethod = method;
+
+  const fromDate = toDate(from, false);
+  const toDateV  = toDate(to, true);
+  if (fromDate || toDateV) {
+    filter.orderDate = {};
+    if (fromDate) filter.orderDate.$gte = fromDate;
+    if (toDateV)  filter.orderDate.$lte = toDateV;
+  }
+
+  if (q && q.trim()) {
+    const like = new RegExp(q.trim(), "i");
+    const or = [
+      { "addressInfo.fullName": like },
+      { "addressInfo.phone": like },
+      { "addressInfo.city": like },
+    ];
+    if (mongoose.Types.ObjectId.isValid(q)) {
+      const oid = new mongoose.Types.ObjectId(q);
+      or.push({ _id: oid }, { userId: oid });
     }
+    filter.$or = or;
+  }
+  return filter;
+}
 
+/* =========================================================
+   EXISTING HANDLERS (kept)
+   ========================================================= */
 
-    const data = list.map((o) => ({
-      _id: String(o._id),
-      paymentId: o.paymentId || "-",
-            userEmail:
-       o?.addressInfo?.email ||                  // prefer address email
-        o?.userId?.email ||                       // populated email
-        usersById.get(String(o?.userId?._id || o?.userId || "")) || // fallback lookup
-        "-",
-      totalAmount: Number(o.totalAmount || 0),
-      paymentStatus: (o.paymentStatus || "PENDING").toUpperCase(),
-      paymentMethod: (o.paymentMethod || "payhere").toUpperCase(),
-      orderDate: o.orderDate || o.createdAt || new Date(),
-    }));
+/**
+ * GET /api/admin/payments
+ * Query: q, status, method, page, limit, from, to
+ */
+exports.getAllPayments = async (req, res, next) => {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+    const filter = makeFilterFromQuery(req.query);
+    const skip = (Number(page) - 1) * Number(limit);
 
-    res.json({ success: true, data });
+    const [items, total] = await Promise.all([
+      Order.find(filter).sort({ orderDate: -1 }).skip(skip).limit(Number(limit)).lean(),
+      Order.countDocuments(filter),
+    ]);
+
+    res.json({ success: true, page: Number(page), limit: Number(limit), total, items });
   } catch (err) {
-    console.error("getAllPayments error:", err);
-    res.status(500).json({ success: false, message: "Failed to fetch payments" });
+    next(err);
   }
 };
 
-// GET /api/admin/payments/export/pdf
-// Streams a simple Payments report PDF
-const exportPaymentsPDF = async (_req, res) => {
+/**
+ * GET /api/admin/payments/export/pdf
+ */
+exports.exportPaymentsPDF = async (req, res, next) => {
   try {
-    const list = await Order.find({ paymentMethod: "payhere" })
-      .sort({ orderDate: -1 })
-      .populate({ path: "userId", select: "email" })
-      .lean();
+    const filter = makeFilterFromQuery(req.query);
+    const items = await Order.find(filter).sort({ orderDate: -1 }).lean();
 
-    const doc = new PDFDocument({ margin: 36, size: "A4" });
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", "attachment; filename=payments.pdf");
+
+    const doc = new PDFDocument({ margin: 40 });
     doc.pipe(res);
 
-    // Header
-    doc.fontSize(20).text("Payments Report", { align: "center" });
-    doc.moveDown(0.2);
-    doc.fontSize(10).fillColor("#666")
-      .text(`Generated: ${new Date().toLocaleString()}`, { align: "center" })
-      .fillColor("#000");
-    doc.moveDown(0.8);
+    doc.fontSize(16).text("Payments Report", { underline: true });
+    doc.moveDown(0.5);
+    doc.fontSize(10).text(`Generated: ${new Date().toLocaleString()}`);
+    doc.moveDown();
 
-    // Table header
-    const headers = ["Payment ID", "Status", "Amount (LKR)", "Method", "User Email", "Date/Time"];
-    const colWidths = [120, 70, 100, 70, 160, 140];
-    const startX = doc.page.margins.left;
-    let y = doc.y;
+    doc.font("Helvetica-Bold");
+    doc.text("Order ID", { continued: true, width: 160 });
+    doc.text("Amount", { continued: true, width: 80, align: "right" });
+    doc.text("Method", { continued: true, width: 80 });
+    doc.text("Pay Status", { continued: true, width: 90 });
+    doc.text("Order Status", { continued: true, width: 90 });
+    doc.text("Date", { width: 130 });
+    doc.moveDown(0.3);
+    doc.font("Helvetica");
 
-    headers.forEach((h, i) => {
-      const x = startX + colWidths.slice(0, i).reduce((a, b) => a + b, 0);
-      doc.fontSize(11).text(h, x, y, { width: colWidths[i] });
-    });
-    doc.moveDown(0.6);
-    y = doc.y;
-    doc.moveTo(startX, y).lineTo(startX + colWidths.reduce((a, b) => a + b, 0), y).stroke();
-    doc.moveDown(0.2);
-
-    // Rows
-    list.forEach((o) => {
-      const row = [
-        o.paymentId || "-",
-        (o.paymentStatus || "PENDING").toUpperCase(),
-        `Rs. ${Number(o.totalAmount || 0).toFixed(2)}`,
-        (o.paymentMethod || "payhere").toUpperCase(),
-        o?.addressInfo?.email || o?.userId?.email || "-",
-        new Date(o.orderDate || o.createdAt || Date.now()).toLocaleString(),
-      ];
-      row.forEach((cell, i) => {
-        const x = startX + colWidths.slice(0, i).reduce((a, b) => a + b, 0);
-        doc.fontSize(10).text(String(cell), x, doc.y, { width: colWidths[i] });
-      });
-      doc.moveDown(0.4);
+    items.forEach((o) => {
+      doc.text(String(o._id), { continued: true, width: 160 });
+      doc.text(Number(o.totalAmount || 0).toFixed(2), { continued: true, width: 80, align: "right" });
+      doc.text(o.paymentMethod || "-", { continued: true, width: 80 });
+      doc.text(o.paymentStatus || "-", { continued: true, width: 90 });
+      doc.text(o.orderStatus || "-", { continued: true, width: 90 });
+      doc.text(o.orderDate ? new Date(o.orderDate).toLocaleString() : "-", { width: 130 });
     });
 
     doc.end();
   } catch (err) {
-    console.error("exportPaymentsPDF error:", err);
-    res.status(500).json({ success: false, message: "Failed to generate PDF" });
+    next(err);
   }
 };
 
-// GET /api/admin/payments/find?paymentId=PH123...
-// Returns a single order by paymentId (used by return page search, if needed)
-const findOrderByPaymentId = async (req, res) => {
+/**
+ * GET /api/admin/payments/find?paymentId=PH123
+ */
+exports.findOrderByPaymentId = async (req, res, next) => {
   try {
     const { paymentId } = req.query;
-    if (!paymentId) {
-      return res.status(400).json({ success: false, message: "paymentId required" });
-    }
+    if (!paymentId) return res.status(400).json({ success: false, message: "paymentId is required" });
     const order = await Order.findOne({ paymentId }).lean();
-    if (!order) {
-      return res.status(404).json({ success: false, message: "Not found" });
-    }
-    res.json({ success: true, data: order });
-  } catch (e) {
-    console.error("findOrderByPaymentId error:", e);
-    res.status(500).json({ success: false, message: "Server error" });
+    if (!order) return res.status(404).json({ success: false, message: "Not found" });
+    res.json({ success: true, item: order });
+  } catch (err) {
+    next(err);
   }
 };
 
-// PATCH /api/admin/payments/:id
-// Update paymentStatus (PAID|PENDING|FAILED). Optionally orderStatus & paymentId.
-const updatePaymentStatus = async (req, res) => {
+/**
+ * PATCH /api/admin/payments/:id
+ * body: { paymentStatus, orderStatus?, paymentId? }
+ * ✅ Updates Order AND upserts matching Payment doc
+ */
+exports.updatePaymentStatus = async (req, res, next) => {
   try {
-    const { id } = req.params;
-    let { paymentStatus, orderStatus, paymentId } = req.body || {};
-
-    const ALLOWED = ["PAID", "PENDING", "FAILED"];
-    if (!paymentStatus || !ALLOWED.includes(String(paymentStatus).toUpperCase())) {
-      return res.status(400).json({
-        success: false,
-        message: `paymentStatus required and must be one of: ${ALLOWED.join(", ")}`,
-      });
+    const { id } = req.params; // Order _id
+    const { paymentStatus, orderStatus, paymentId } = req.body || {};
+    if (!paymentStatus && !orderStatus && !paymentId) {
+      return res.status(400).json({ success: false, message: "Nothing to update" });
     }
 
     const order = await Order.findById(id);
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
 
-    // Normalize to uppercase
-    paymentStatus = String(paymentStatus).toUpperCase();
-    order.paymentStatus = paymentStatus;
-
-    // Default orderStatus mapping if not provided
-    if (!orderStatus) {
-      if (paymentStatus === "PAID") orderStatus = "CONFIRMED";
-      else if (paymentStatus === "FAILED") orderStatus = "CANCELLED";
-      else orderStatus = "PENDING";
-    }
-    order.orderStatus = String(orderStatus).toUpperCase();
-
-    // Optional: allow updating/storing a gateway payment reference manually
-    if (typeof paymentId === "string") {
-      order.paymentId = paymentId;
-    }
-
+    // normalize & update order
+    if (paymentStatus) order.paymentStatus = paymentStatus.toUpperCase();
+    if (orderStatus)   order.orderStatus   = orderStatus.toUpperCase();
+    if (paymentId)     order.paymentId     = paymentId;
+    order.orderUpdateDate = new Date();
     await order.save();
-    return res.json({ success: true, data: order });
-  } catch (e) {
-    console.error("updatePaymentStatus error:", e);
-    return res.status(500).json({ success: false, message: "Server error" });
+
+    // upsert payment row to stay in sync
+    await Payment.findOneAndUpdate(
+      { orderId: order._id },
+      {
+        $set: {
+          userId: order.userId,
+          provider: order.paymentMethod || "payhere",
+          paymentMethod: order.paymentMethod || "payhere",
+          paymentStatus: order.paymentStatus,
+          amount: order.totalAmount || 0,
+          currency: "LKR",
+          providerPaymentId: order.paymentId || "",
+          ipnAt: new Date(),
+        },
+      },
+      { upsert: true, new: true }
+    );
+
+    res.json({ success: true, item: { _id: order._id } });
+  } catch (err) {
+    next(err);
   }
 };
 
-// DELETE /api/admin/payments/:id
-// Deletes an order/payment record
-const deletePayment = async (req, res) => {
+/**
+ * DELETE /api/admin/payments/:id
+ * ✅ Removes order (or you can soft-cancel) AND deletes Payment row
+ */
+exports.deletePayment = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const del = await Order.findByIdAndDelete(id);
+
+    // hard delete (keep your previous behavior)
+    const del = await Order.findByIdAndDelete(id).lean();
+
+    // if you prefer soft delete instead, replace the line above with:
+    // const del = await Order.findByIdAndUpdate(id, { $set: { orderStatus: "CANCELLED", paymentStatus: "FAILED", orderUpdateDate: new Date() } }, { new: true }).lean();
+
+    await Payment.deleteOne({ orderId: new mongoose.Types.ObjectId(id) });
+
     if (!del) return res.status(404).json({ success: false, message: "Order not found" });
-    return res.json({ success: true });
-  } catch (e) {
-    console.error("deletePayment error:", e);
-    return res.status(500).json({ success: false, message: "Server error" });
+    res.json({ success: true, message: "Deleted", item: del });
+  } catch (err) {
+    next(err);
   }
 };
 
-module.exports = {
-  getAllPayments,
-  exportPaymentsPDF,
-  findOrderByPaymentId,
-  updatePaymentStatus, // ✅ NEW
-  deletePayment,       // ✅ NEW
+/* =========================================================
+   NEW HANDLERS (added)
+   ========================================================= */
+
+/**
+ * GET /api/admin/payments/orders
+ */
+exports.listPaymentOrders = async (req, res, next) => {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+    const filter = makeFilterFromQuery(req.query);
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const [items, total] = await Promise.all([
+      Order.find(filter).sort({ orderDate: -1 }).skip(skip).limit(Number(limit)).lean(),
+      Order.countDocuments(filter),
+    ]);
+
+    res.json({ success: true, page: Number(page), limit: Number(limit), total, items });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * PATCH /api/admin/payments/orders/:id/mark-paid
+ * Body: { paymentId?, payerId? }
+ * ✅ Also upserts Payment row to PAID
+ */
+exports.markOrderPaid = async (req, res, next) => {
+  try {
+    const { id } = req.params; // Order _id
+    const { paymentId, payerId } = req.body || {};
+
+    const order = await Order.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          paymentStatus: "PAID",
+          orderStatus: "CONFIRMED",
+          ...(paymentId ? { paymentId } : {}),
+          ...(payerId ? { payerId } : {}),
+          orderUpdateDate: new Date(),
+        },
+      },
+      { new: true }
+    );
+
+    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+
+    await Payment.findOneAndUpdate(
+      { orderId: order._id },
+      {
+        $set: {
+          userId: order.userId,
+          provider: order.paymentMethod || "payhere",
+          paymentMethod: order.paymentMethod || "payhere",
+          paymentStatus: "PAID",
+          amount: order.totalAmount || 0,
+          currency: "LKR",
+          providerPaymentId: paymentId || order.paymentId || "",
+          ipnAt: new Date(),
+        },
+      },
+      { upsert: true, new: true }
+    );
+
+    res.json({ success: true, item: order.toObject() });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * GET /api/admin/payments/summary
+ */
+exports.getPaymentSummary = async (_req, res, next) => {
+  try {
+    const byStatus = await Order.aggregate([
+      { $group: { _id: "$paymentStatus", count: { $sum: 1 }, amount: { $sum: "$totalAmount" } } },
+      { $sort: { count: -1 } },
+    ]);
+
+    const byMethod = await Order.aggregate([
+      { $group: { _id: "$paymentMethod", count: { $sum: 1 }, amount: { $sum: "$totalAmount" } } },
+      { $sort: { count: -1 } },
+    ]);
+
+    res.json({ success: true, byStatus, byMethod });
+  } catch (err) {
+    next(err);
+  }
 };
