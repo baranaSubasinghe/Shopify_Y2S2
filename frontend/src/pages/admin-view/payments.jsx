@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+// frontend/src/pages/admin-view/payments.jsx
+import { useEffect, useState, useMemo } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
-const API_BASE = "http://localhost:5001";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
 
 export default function AdminPaymentsPage() {
   const [rows, setRows] = useState([]);
@@ -12,16 +13,19 @@ export default function AdminPaymentsPage() {
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
 
+  // --- load from NEW list endpoint (/orders) ---
   const load = async () => {
     try {
       setLoading(true);
-      const { data } = await axios.get(`${API_BASE}/api/admin/payments`, { withCredentials: true });
+      const { data } = await axios.get(
+        `${API_BASE}/api/admin/payments/orders`,
+        { params: { page: 1, limit: 200 }, withCredentials: true }
+      );
       if (data?.success) {
-        setRows(data.data);
-        setFiltered(data.data);
+        setRows(data.items || []);
+        setFiltered(data.items || []);
       } else {
-        setRows([]);
-        setFiltered([]);
+        setRows([]); setFiltered([]);
         toast.error(data?.message || "Failed to load payments");
       }
     } catch (e) {
@@ -34,12 +38,22 @@ export default function AdminPaymentsPage() {
 
   useEffect(() => { load(); }, []);
 
+  // --- client-side filter (order id / user / payment id / status / method / phone / city) ---
   const filter = (val) => {
     setQ(val);
     const v = val.toLowerCase();
     setFiltered(
       rows.filter((r) =>
-        [r._id, r.paymentId, r.userEmail, r.paymentStatus, r.paymentMethod]
+        [
+          r._id,
+          r.paymentId,
+          r.userId,
+          r.paymentStatus,
+          r.paymentMethod,
+          r?.addressInfo?.phone,
+          r?.addressInfo?.city,
+        ]
+          .filter(Boolean)
           .join(" ")
           .toLowerCase()
           .includes(v)
@@ -47,26 +61,40 @@ export default function AdminPaymentsPage() {
     );
   };
 
+  // --- update status ---
+  // Use the dedicated mark-paid endpoint for PAID,
+  // fall back to legacy PATCH for other statuses.
   const updateStatus = async (id, paymentStatus) => {
     try {
-      const { data } = await axios.patch(
-        `${API_BASE}/api/admin/payments/${id}`,
-        { paymentStatus },
-        { withCredentials: true }
-      );
-      if (data?.success) {
-        toast.success(`Updated to ${paymentStatus}`);
-        // refresh locally
-        setRows((prev) => prev.map((r) => (r._id === id ? {
-          ...r,
-          paymentStatus: paymentStatus.toUpperCase(),
-        } : r)));
-        setFiltered((prev) => prev.map((r) => (r._id === id ? {
-          ...r,
-          paymentStatus: paymentStatus.toUpperCase(),
-        } : r)));
+      let resp;
+      if (paymentStatus.toUpperCase() === "PAID") {
+        resp = await axios.patch(
+          `${API_BASE}/api/admin/payments/orders/${id}/mark-paid`,
+          {}, { withCredentials: true }
+        );
       } else {
-        toast.error(data?.message || "Update failed");
+        resp = await axios.patch(
+          `${API_BASE}/api/admin/payments/${id}`,
+          { paymentStatus: paymentStatus.toUpperCase() },
+          { withCredentials: true }
+        );
+      }
+
+      const ok = resp?.data?.success;
+      if (ok) {
+        toast.success(`Updated to ${paymentStatus.toUpperCase()}`);
+        setRows((prev) =>
+          prev.map((r) =>
+            r._id === id ? { ...r, paymentStatus: paymentStatus.toUpperCase() } : r
+          )
+        );
+        setFiltered((prev) =>
+          prev.map((r) =>
+            r._id === id ? { ...r, paymentStatus: paymentStatus.toUpperCase() } : r
+          )
+        );
+      } else {
+        toast.error(resp?.data?.message || "Update failed");
       }
     } catch (e) {
       console.error(e);
@@ -74,12 +102,14 @@ export default function AdminPaymentsPage() {
     }
   };
 
+  // --- delete order/payment (legacy endpoint you already had) ---
   const deletePayment = async (id) => {
     if (!confirm("Delete this payment/order? This cannot be undone.")) return;
     try {
-      const { data } = await axios.delete(`${API_BASE}/api/admin/payments/${id}`, {
-        withCredentials: true,
-      });
+      const { data } = await axios.delete(
+        `${API_BASE}/api/admin/payments/${id}`,
+        { withCredentials: true }
+      );
       if (data?.success) {
         toast.success("Deleted");
         setRows((prev) => prev.filter((r) => r._id !== id));
@@ -93,17 +123,23 @@ export default function AdminPaymentsPage() {
     }
   };
 
+  // --- export pdf (legacy endpoint you already had) ---
   const exportPDF = () => {
     window.open(`${API_BASE}/api/admin/payments/export/pdf`, "_blank");
   };
+
+  const totalAmount = useMemo(
+    () => filtered.reduce((sum, r) => sum + Number(r.totalAmount || 0), 0),
+    [filtered]
+  );
 
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold">Payments</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <Input
-            placeholder="Search payments…"
+            placeholder="Search order/user/phone/city…"
             value={q}
             onChange={(e) => filter(e.target.value)}
             className="w-72"
@@ -112,6 +148,11 @@ export default function AdminPaymentsPage() {
             Download PDF
           </Button>
         </div>
+      </div>
+
+      <div className="mb-2 text-sm">
+        Showing <b>{filtered.length}</b> records · Total LKR{" "}
+        <b>{totalAmount.toLocaleString("en-LK", { minimumFractionDigits: 2 })}</b>
       </div>
 
       {loading ? (
@@ -123,7 +164,7 @@ export default function AdminPaymentsPage() {
               <tr>
                 <th className="p-2 border text-left">Order ID</th>
                 <th className="p-2 border text-left">Payment ID</th>
-                <th className="p-2 border text-left">User Email</th>
+                <th className="p-2 border text-left">User</th>
                 <th className="p-2 border text-right">Amount (LKR)</th>
                 <th className="p-2 border text-left">Status</th>
                 <th className="p-2 border text-left">Method</th>
@@ -136,7 +177,9 @@ export default function AdminPaymentsPage() {
                 <tr key={r._id}>
                   <td className="p-2 border font-mono">{r._id}</td>
                   <td className="p-2 border font-mono">{r.paymentId || "-"}</td>
-                  <td className="p-2 border">{r.userEmail || "-"}</td>
+                  <td className="p-2 border">
+                    {r.userEmail || r.userId || "-"}
+                  </td>
                   <td className="p-2 border text-right">
                     {Number(r.totalAmount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
                   </td>
@@ -152,12 +195,13 @@ export default function AdminPaymentsPage() {
                       {r.paymentStatus}
                     </span>
                   </td>
-                  <td className="p-2 border">{r.paymentMethod}</td>
+                  <td className="p-2 border">{r.paymentMethod || "-"}</td>
                   <td className="p-2 border">
-                    {new Date(r.orderDate).toLocaleString()}
+                    {r.orderDate ? new Date(r.orderDate).toLocaleString() : "-"}
                   </td>
                   <td className="p-2 border">
                     <div className="flex flex-wrap gap-2">
+                      <a className="underline" href={`/admin/orders/${r._id}`}>View</a>
                       <Button size="sm" variant="outline" onClick={() => updateStatus(r._id, "PAID")}>
                         Mark Paid
                       </Button>
