@@ -230,6 +230,21 @@ export default function ShoppingCheckout() {
     else handleInitiatePayHerePayment();
   };
 
+  useEffect(() => {
+  const onChk = (e) => {
+    const m = e.detail?.method;
+    if (m === "payhere") setMethod("payhere");
+    else if (m === "cod") setMethod("cod");
+  };
+  const onPlace = () => onPlaceOrder();      // your existing handler
+
+  window.addEventListener("voice-checkout", onChk);
+  window.addEventListener("voice-place-order", onPlace);
+  return () => {
+    window.removeEventListener("voice-checkout", onChk);
+    window.removeEventListener("voice-place-order", onPlace);
+  };
+}, [onPlaceOrder, setMethod]);
   return (
     <div className="flex flex-col">
       {/* cover */}

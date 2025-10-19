@@ -12,6 +12,7 @@ import shopReviewSlice from "./shop/review-slice";
 import commonFeatureSlice from "./common-slice";
 import adminReviewsReducer from "./admin/reviews-slice";
 import accountReducer from "./account-slice";
+import notificationsReducer from "./admin/notification-slice/index.js";
 
 const store = configureStore({
   reducer: {
@@ -30,6 +31,7 @@ const store = configureStore({
     commonFeature: commonFeatureSlice,
     adminReviews: adminReviewsReducer,
     account: accountReducer,
+    adminNotifications: notificationsReducer
 
   },
 });
