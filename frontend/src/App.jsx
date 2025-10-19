@@ -18,6 +18,7 @@ import AdminUsersPage from "@/pages/admin-view/users";
 import AdminReviewsPage from "./pages/admin-view/reviews";
 import AdminPaymentsPage from "@/pages/admin-view/payments";
 import FeatureImagesPage from "@/pages/admin-view/feature-images";
+import AdminNotificationsPage from "@/pages/admin-view/notifications";
 
 import ShoppingLayout from "./components/shopping-view/layout";
 import ShoppingHome from "./pages/shopping-view/home";
@@ -96,6 +97,7 @@ function App() {
           <Route path="reviews" element={<AdminReviewsPage />} />
           <Route path="payments" element={<AdminPaymentsPage />} />
           <Route path="images" element={<FeatureImagesPage />} />
+          <Route path="notifications" element={<AdminNotificationsPage />} />
         </Route>
 
         {/* SHOP (protected) */}

@@ -44,6 +44,9 @@ function AdminProducts() {
   const [imageLoadingState, setImageLoadingState] = useState(false);
   const [currentEditedId, setCurrentEditedId] = useState(null);
 
+  const LOW_STOCK_THRESHOLD =
+  Number(import.meta.env.VITE_LOW_STOCK_THRESHOLD || 5);
+
   // search state
   const [search, setSearch] = useState("");
 
