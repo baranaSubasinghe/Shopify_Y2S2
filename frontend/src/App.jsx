@@ -32,7 +32,7 @@ import CheckAuth from "./components/common/check-auth";
 import AiChatbot from "./components/ai/chatbot";
 import DeliveryLayout from "./components/delivery-view/layout";
 import DeliveryDashboard from "./pages/delivery-view/dashboard";
-
+import FeatureImagesPage from "@/pages/admin-view/feature-images";
 import { Skeleton } from "@/components/ui/skeleton";
 import { checkAuth } from "./store/auth-slice";
 import axios from "axios";
@@ -84,6 +84,7 @@ function App() {
           <Route path="users" element={<AdminUsersPage />} />
           <Route path="reviews" element={<AdminReviewsPage />} />
           <Route path="payments" element={<AdminPaymentsPage />} />
+          <Route path="images" element={<FeatureImagesPage />} />
         </Route>
 
         {/* PROTECTED SHOP ROUTES */}

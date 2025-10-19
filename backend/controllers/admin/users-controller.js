@@ -1,5 +1,6 @@
-// backend/controllers/admin/users-controller.js
+const mongoose = require("mongoose");
 const User = require("../../models/User");
+const Order = require("../../models/Order");
 
 // --- helpers ---
 async function isLastAdmin(userId) {
@@ -146,5 +147,150 @@ exports.updateUserRole = async (req, res) => {
   } catch (err) {
     console.error("updateUserRole error:", err);
     return res.status(500).json({ success: false, message: "Server error." });
+  }
+};
+// GET /api/admin/users/summary
+// returns { total, admin, delivery, user }
+exports.getUsersSummary = async (_req, res) => {
+  try {
+    const User = require("../../models/User");
+    const grouped = await User.aggregate([
+      { $group: { _id: "$role", count: { $sum: 1 } } },
+    ]);
+
+    const out = { total: 0, admin: 0, delivery: 0, user: 0 };
+    for (const g of grouped) {
+      const key = String(g._id || "user").toLowerCase();
+      if (key === "admin") out.admin = g.count;
+      else if (key === "delivery") out.delivery = g.count;
+      else out.user += g.count; // treat anything else as "user"
+      out.total += g.count;
+    }
+
+    return res.json({ success: true, data: out });
+  } catch (err) {
+    console.error("getUsersSummary error:", err);
+    return res.status(500).json({ success: false, message: "Server error." });
+  }
+};
+exports.getActiveDeliveryStaff = async (req, res) => {
+  try {
+    const days  = Math.max(1, Math.min(Number(req.query.days)  || 30, 180));
+    const limit = Math.max(1, Math.min(Number(req.query.limit) || 8,  50));
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const deliveredStates     = ["DELIVERED", "delivered"];
+    const nearDeliveredStates = ["OUT_FOR_DELIVERY", "out_for_delivery", "SHIPPED", "shipped"];
+
+    // Where the delivery user might be stored
+    const idPaths = [
+      "assignedTo",
+      "assignedUserId",
+      "deliveryUserId",
+      "deliveryId",
+      "deliveryPersonId",
+      "deliveryBy",
+      "delivery.assignedTo",
+      "delivery.userId",
+      "delivery.acceptedBy",
+    ];
+
+    // choose first non-null of the above
+    const coalescePaths = (paths) => ({
+      $let: {
+        vars: { vals: paths.map(p => ({ $ifNull: [ `$${p}`, null ] })) },
+        in: {
+          $first: {
+            $filter: { input: "$$vals", as: "v", cond: { $ne: ["$$v", null] } }
+          }
+        }
+      }
+    });
+
+    const resolvedDateExpr = {
+      $ifNull: [
+        "$orderUpdateDate",
+        { $ifNull: ["$updatedAt", "$orderDate"] }
+      ]
+    };
+
+    // Build a generic pipeline that can target several statuses
+    const buildPipeline = (allowedStatuses) => {
+      const chosenIdExpr = coalescePaths(idPaths);         // could be ObjectId or string
+      const chosenIdStr  = { $toString: chosenIdExpr };    // normalize to string key for grouping
+
+      return [
+        { $match: { orderStatus: { $in: allowedStatuses } } },
+        { $addFields: { _ts: resolvedDateExpr } },
+        { $match: { _ts: { $gte: since } } },
+
+        // Get a string key, drop empty/ "null"
+        { $addFields: { _deliveryKey: chosenIdStr } },
+        { $match: { _deliveryKey: { $nin: [null, "", "null", "undefined"] } } },
+
+        // Group by the normalized string key
+        { $group: {
+            _id: "$_deliveryKey",
+            lastDeliveredAt: { $max: "$_ts" },
+            deliveredCount:  { $sum: 1 },
+          }
+        },
+        { $sort: { lastDeliveredAt: -1 } },
+        { $limit: limit },
+
+        // Try to lookup the user by comparing string(_id) with our string key
+        { $lookup: {
+            from: "users",
+            let: { key: "$_id" },
+            pipeline: [
+              { $match: { $expr: { $eq: [ { $toString: "$_id" }, "$$key" ] } } },
+              { $project: { _id: 1, userName: 1, email: 1, role: 1, avatar: 1 } }
+            ],
+            as: "user"
+          }
+        },
+        { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
+        { $match: { $or: [ { "user.role": "delivery" }, { user: { $eq: null } } ] } }, // allow unknowns
+
+        // Final shape
+        { $project: {
+            _id: 0,
+            key: "$_id",
+            deliveredCount: 1,
+            lastDeliveredAt: 1,
+            user: 1
+          }
+        }
+      ];
+    };
+
+    // 1) Strictly delivered
+    let rows = await Order.aggregate(buildPipeline(deliveredStates));
+
+    // 2) If empty, also accept near-delivered states
+    if (!rows.length) {
+      rows = await Order.aggregate(buildPipeline(deliveredStates.concat(nearDeliveredStates)));
+    }
+
+    // 3) If still empty, list delivery users as fallback
+    if (!rows.length) {
+      const fallbackUsers = await User.find({ role: "delivery" })
+        .sort({ updatedAt: -1, createdAt: -1 })
+        .limit(limit)
+        .select("_id userName email role avatar createdAt updatedAt")
+        .lean();
+
+      rows = fallbackUsers.map((u) => ({
+        key: String(u._id),
+        deliveredCount: 0,
+        lastDeliveredAt: u.updatedAt || u.createdAt || since,
+        user: u,
+      }));
+    }
+
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error("getActiveDeliveryStaff error:", err);
+    res.status(500).json({ success: false, message: "Server error." });
   }
 };
