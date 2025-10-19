@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
-const API_BASE = "http://localhost:5001";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
 
 function useQuery() {
   const { search } = useLocation();
@@ -32,9 +32,9 @@ export default function PayHereReturn() {
     }
     try {
       setLoading(true);
-      const { data } = await axios.get(`${API_BASE}/api/shop/order/details/${id}`, {
-        withCredentials: true,
-      });
+      const { data } = await axios.get(`${API_BASE}/api/shop/order/${id}`, {
+  withCredentials: true,
+});
       if (data?.success) {
         setOrder(data.data);
 
@@ -98,7 +98,7 @@ export default function PayHereReturn() {
 
   const handleDownloadPDF = () => {
     if (!orderId) return toast.error("No order selected");
-    window.open(`${API_BASE}/api/shop/order/invoice/${orderId}`, "_blank");
+    window.open(`${API_BASE}/api/shop/order/${orderId}/invoice`, "_blank");
   };
 
   const items = Array.isArray(order?.cartItems) ? order.cartItems : [];
@@ -184,7 +184,8 @@ export default function PayHereReturn() {
                 <tbody>
                   {items.map((it, idx) => {
                     const qty = Number(it.quantity || 0);
-                    const unit = Number(it.price || 0);
+                     const unit = Number(it.unitPrice ?? it.price ?? 0);
+                     const lineTotal = Number(it.lineTotal ?? it.quantity * unit) || 0;
                     return (
                       <tr key={idx}>
                         <td className="p-2 border">{it.title || it.productId?.title || "-"}</td>
@@ -193,7 +194,7 @@ export default function PayHereReturn() {
                           {unit.toLocaleString("en-LK", { minimumFractionDigits: 2 })}
                         </td>
                         <td className="p-2 text-right border">
-                          {(qty * unit).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                          {lineTotal.toLocaleString("en-LK", { minimumFractionDigits: 2 })}
                         </td>
                       </tr>
                     );
@@ -218,19 +219,21 @@ export default function PayHereReturn() {
                   {totalAmount.toLocaleString("en-LK", { minimumFractionDigits: 2 })}
                 </div>
                 <div className="mt-2">
-                  <Button
-                    onClick={handleDownloadPDF}
-                    className="bg-black text-white hover:bg-black/90"
-                  >
-                    Download Invoice PDF
-                  </Button>
+                 <a
+  href={`${API_BASE}/api/shop/order/${orderId}/invoice`}
+  target="_blank"
+  rel="noopener"
+  className="inline-flex items-center rounded-md bg-black text-white px-4 py-2 hover:opacity-90"
+>
+  Download Invoice PDF
+</a>
                 </div>
               </div>
             </div>
           </div>
 
           {/* Navigation */}
-          <div className="flex gap-2">
+          <div className="flex gap-2 color-black">
             <Button variant="outline" onClick={() => navigate("/shop/account")}>
               Go to My Orders
             </Button>

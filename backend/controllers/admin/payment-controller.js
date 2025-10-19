@@ -71,6 +71,10 @@ exports.getAllPayments = async (req, res, next) => {
 /**
  * GET /api/admin/payments/export/pdf
  */
+/**
+ * GET /api/admin/payments/export/pdf
+ * Clean, columnar PDF with fixed widths, row height, and page breaks
+ */
 exports.exportPaymentsPDF = async (req, res, next) => {
   try {
     const filter = makeFilterFromQuery(req.query);
@@ -79,32 +83,130 @@ exports.exportPaymentsPDF = async (req, res, next) => {
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", "attachment; filename=payments.pdf");
 
-    const doc = new PDFDocument({ margin: 40 });
+    const doc = new PDFDocument({ margin: 36, size: "A4" });
+
+    doc.on("error", (err) => {
+      console.error("Payments PDF error:", err);
+      if (!res.headersSent) res.status(500).end("Error generating PDF");
+    });
+
     doc.pipe(res);
 
-    doc.fontSize(16).text("Payments Report", { underline: true });
-    doc.moveDown(0.5);
-    doc.fontSize(10).text(`Generated: ${new Date().toLocaleString()}`);
-    doc.moveDown();
+    const pageWidth = doc.page.width;
+    const pageHeight = doc.page.height;
+    const margin = 36;
 
-    doc.font("Helvetica-Bold");
-    doc.text("Order ID", { continued: true, width: 160 });
-    doc.text("Amount", { continued: true, width: 80, align: "right" });
-    doc.text("Method", { continued: true, width: 80 });
-    doc.text("Pay Status", { continued: true, width: 90 });
-    doc.text("Order Status", { continued: true, width: 90 });
-    doc.text("Date", { width: 130 });
-    doc.moveDown(0.3);
-    doc.font("Helvetica");
+    // Widen date column and balance others
+    const cols = [
+      { key: "orderId",      label: "Order ID",     x: 36,  w: 130, align: "left"  },
+      { key: "amount",       label: "Amount",       x: 170, w: 70,  align: "right" },
+      { key: "method",       label: "Method",       x: 250, w: 70,  align: "left"  },
+      { key: "payStatus",    label: "Pay Status",   x: 320, w: 90,  align: "left"  },
+      { key: "orderStatus",  label: "Order Status", x: 410, w: 90,  align: "left"  },
+      { key: "date",         label: "Date",         x: 500, w: 180, align: "left"  }, // ✅ wider
+    ];
+
+    let y = margin;
+    const rowH = 18;
+
+    // helpers
+    const fmtAmt = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n)
+        ? n.toLocaleString("en-LK", { minimumFractionDigits: 2 })
+        : "0.00";
+    };
+
+    const fmtDate = (d) => {
+      if (!d) return "-";
+      const dt = new Date(d);
+      if (Number.isNaN(dt.getTime())) return "-";
+      const pad = (n) => String(n).padStart(2, "0");
+      return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+    };
+
+    const cut = (s, max = 32) => {
+      const t = String(s ?? "");
+      return t.length > max ? t.slice(0, max - 1) + "…" : t;
+    };
+
+    const needRoom = (h = rowH) => {
+      if (y + h > pageHeight - margin) {
+        doc.addPage();
+        y = margin;
+        drawHeader();
+      }
+    };
+
+    const drawHeader = () => {
+      doc.font("Helvetica-Bold").fontSize(18).fillColor("#111").text("Payments Report", 36, y);
+      doc.font("Helvetica").fontSize(10).fillColor("#555").text(`Generated: ${fmtDate(Date.now())}`, 36, y + 20);
+      y += 42;
+
+      doc.font("Helvetica-Bold").fontSize(11).fillColor("#000");
+      cols.forEach((c) => {
+        doc.text(c.label, c.x, y, { width: c.w, align: c.align, lineBreak: false });
+      });
+      y += 14;
+      doc.moveTo(36, y).lineTo(pageWidth - margin, y).strokeColor("#ccc").stroke();
+      y += 6;
+    };
+
+    const drawRow = (o, zebra) => {
+      needRoom(rowH + 4);
+
+      if (zebra) {
+        doc.save();
+        doc.rect(36, y - 2, pageWidth - margin * 2, rowH + 4).fillOpacity(0.04).fill("#000").restore();
+      }
+
+      const cells = {
+        orderId:     cut(o._id, 24),
+        amount:      fmtAmt(o.totalAmount || 0),
+        method:      String(o.paymentMethod || "-"),
+        payStatus:   String(o.paymentStatus || "-"),
+        orderStatus: String(o.orderStatus || "-"),
+        date:        fmtDate(o.orderDate),
+      };
+
+      doc.font("Helvetica").fontSize(10).fillColor("#000");
+      cols.forEach((c) => {
+        doc.text(cells[c.key], c.x, y, {
+          width: c.w,
+          align: c.align,
+          lineBreak: false,   // ✅ no wrapping at all
+          ellipsis: true,     // ✅ ensures truncation instead of wrapping
+        });
+      });
+
+      y += rowH;
+    };
+
+    // ------- content -------
+    drawHeader();
+
+    if (!items.length) {
+      needRoom(20);
+      doc.font("Helvetica-Oblique").fontSize(11).fillColor("#666").text("No payments found.", 36, y, { lineBreak: false });
+      doc.end();
+      return;
+    }
+
+    let zebra = false;
+    let total = 0;
 
     items.forEach((o) => {
-      doc.text(String(o._id), { continued: true, width: 160 });
-      doc.text(Number(o.totalAmount || 0).toFixed(2), { continued: true, width: 80, align: "right" });
-      doc.text(o.paymentMethod || "-", { continued: true, width: 80 });
-      doc.text(o.paymentStatus || "-", { continued: true, width: 90 });
-      doc.text(o.orderStatus || "-", { continued: true, width: 90 });
-      doc.text(o.orderDate ? new Date(o.orderDate).toLocaleString() : "-", { width: 130 });
+      total += Number(o.totalAmount || 0);
+      drawRow(o, zebra);
+      zebra = !zebra;
     });
+
+    // summary
+    needRoom(28);
+    doc.moveTo(36, y).lineTo(pageWidth - margin, y).strokeColor("#ccc").stroke();
+    y += 8;
+    doc.font("Helvetica-Bold").fontSize(12).fillColor("#000")
+      .text(`Total Amount: Rs. ${fmtAmt(total)}`, 36, y, { lineBreak: false });
 
     doc.end();
   } catch (err) {

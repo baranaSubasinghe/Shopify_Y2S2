@@ -201,7 +201,7 @@ export default function AdminPaymentsPage() {
                   </td>
                   <td className="p-2 border">
                     <div className="flex flex-wrap gap-2">
-                      <a className="underline" href={`/admin/orders/${r._id}`}>View</a>
+                      
                       <Button size="sm" variant="outline" onClick={() => updateStatus(r._id, "PAID")}>
                         Mark Paid
                       </Button>
