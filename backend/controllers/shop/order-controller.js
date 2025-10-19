@@ -21,11 +21,10 @@ const apiBaseUrl     = process.env.API_BASE_URL || "http://localhost:5001";
 /* -------------------------------------------------------
  * helpers
  * ------------------------------------------------------- */
-function normalizeToEnum(raw, allowed) {
+function normalizeToEnum(raw, allowed = []) {
   const s = String(raw ?? "").trim();
-  if (!Array.isArray(allowed) || allowed.length === 0) return s;
-  const hit = allowed.find((v) => String(v).toLowerCase() === s.toLowerCase());
-  return hit ?? allowed[0];
+  const hit = allowed.find(v => String(v).toLowerCase() === s.toLowerCase());
+  return hit ?? (allowed[0] ?? s);
 }
 
 function pickDbUnitPrice(p) {
@@ -408,6 +407,7 @@ const downloadInvoicePDF = async (req, res) => {
 /* -------------------------------------------------------
  * Create Order — Cash On Delivery
  * ------------------------------------------------------- */
+
 const createOrderCOD = async (req, res) => {
   try {
     const {
@@ -432,7 +432,7 @@ const createOrderCOD = async (req, res) => {
       addressInfo.firstName = req.user?.name || req.user?.firstName || "Customer";
     }
 
-    // recompute total if needed
+    // compute/fallback total
     let amountNum = Number(totalAmount);
     if (!(amountNum > 0)) {
       amountNum = (cartItems || []).reduce((sum, it) => {
@@ -446,19 +446,28 @@ const createOrderCOD = async (req, res) => {
       }
     }
 
+    // 🔑 normalize to model enums (case-insensitive)
+    const orderStatusEnum        = Order.schema.path("orderStatus")?.options?.enum || [];
+    const orderPaymentStatusEnum = Order.schema.path("paymentStatus")?.options?.enum || [];
+    const paymentModelEnum       = (Payment.schema.path("paymentStatus")?.options?.enum) || [];
+
+    const normOrderStatus   = normalizeToEnum("PENDING", orderStatusEnum);
+    const normOrderPay      = normalizeToEnum("PENDING", orderPaymentStatusEnum);
+    const normPaymentModel  = normalizeToEnum("PENDING", paymentModelEnum);
+
     const order = await Order.create({
       userId: new mongoose.Types.ObjectId(u),
       cartId: cartId || "",
       cartItems,
-      orderStatus: "PENDING",
+      orderStatus: normOrderStatus,          // e.g. "PENDING"
       paymentMethod: "cod",
-      paymentStatus: "PENDING",   // keep uppercase to match enums
+      paymentStatus: normOrderPay,           // e.g. "pending" if that’s your enum
       totalAmount: amountNum,
       orderDate: orderDate || new Date(),
       orderUpdateDate: orderUpdateDate || new Date(),
       paymentId: "",
       payerId: "",
-      addressInfo,
+      addressInfo,                           // keep address on order
     });
 
     await Payment.create({
@@ -466,16 +475,19 @@ const createOrderCOD = async (req, res) => {
       userId: order.userId,
       provider: "cod",
       paymentMethod: "cod",
-      paymentStatus: "PENDING",
+      paymentStatus: normPaymentModel,       // match Payment model’s enum/case
       amount: amountNum,
       currency: "LKR",
-      providerPaymentId: "",
     });
 
-    return res.status(200).json({ success: true, message: "COD order created", orderId: String(order._id) });
+    return res.status(200).json({
+      success: true,
+      message: "COD order created",
+      orderId: String(order._id),
+    });
   } catch (e) {
     console.error("createOrderCOD error:", e);
-    return res.status(500).json({ success: false, message: "Server error" });
+    return res.status(500).json({ success: false, message: e?.message || "Server error" });
   }
 };
 
