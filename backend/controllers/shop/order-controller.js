@@ -1,28 +1,58 @@
 // backend/controllers/shop/order-controller.js
+const mongoose = require("mongoose");
 const Order = require("../../models/Order");
 const Payment = require("../../models/Payment");
+const PDFDocument = require("pdfkit");
 const {
   isSandbox,
   generateCheckoutHash,
   verifyIPNSignature,
 } = require("../../helpers/payhere");
-const PDFDocument = require("pdfkit");
-const mongoose = require("mongoose");
 
+// ---- ENV (loaded by server.js: require('dotenv').config())
 const merchantId     = process.env.PAYHERE_MERCHANT_ID;
 const merchantSecret = process.env.PAYHERE_MERCHANT_SECRET;
-const appBaseUrl     = process.env.APP_BASE_URL;
-const apiBaseUrl     = process.env.API_BASE_URL;
+const appBaseUrl     = process.env.APP_BASE_URL || "http://localhost:5173";
+const apiBaseUrl     = process.env.API_BASE_URL || "http://localhost:5001";
+
+// small helper (kept if you need it elsewhere)
+function toObjectId(v) {
+  if (!v) return v;
+  if (v instanceof mongoose.Types.ObjectId) return v;
+  if (mongoose.isValidObjectId(v)) return new mongoose.Types.ObjectId(v);
+  return v;
+}
 
 /* -------------------------------------------------------
- * Create Order + create PENDING Payment + build PayHere payload
+ * helpers: enum-safe normalization against model schemas
+ * ------------------------------------------------------- */
+function normalizeToEnum(raw, allowed) {
+  const s = String(raw ?? "").trim();
+  if (!Array.isArray(allowed) || allowed.length === 0) return s;
+  const hit = allowed.find((v) => String(v).toLowerCase() === s.toLowerCase());
+  return hit ?? allowed[0];
+}
+function moneyToNumber(v) {
+  const cleaned = String(v ?? "").replace(/[^0-9.]/g, "");
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+/* -------------------------------------------------------
+ * Create Order + return PayHere payload
  * ------------------------------------------------------- */
 const createOrder = async (req, res) => {
   try {
+    console.log("[createOrder] IN:", JSON.stringify(req.body, null, 2));
+    console.log("[createOrder] PH cfg:", !!merchantId, !!merchantSecret);
+    if (!merchantId || !merchantSecret) {
+      return res.status(500).json({ success: false, message: "PayHere not configured" });
+    }
+
     const {
       userId,
-      cartItems,
-      addressInfo,
+      cartItems = [],
+      addressInfo = {},
       totalAmount,
       cartId,
       orderStatus,
@@ -30,28 +60,81 @@ const createOrder = async (req, res) => {
       paymentStatus,
       orderDate,
       orderUpdateDate,
-    } = req.body;
+    } = req.body || {};
 
-    if (!merchantId || !merchantSecret) {
-      return res.status(500).json({ success: false, message: "PayHere not configured" });
+    // ---- userId (validate BEFORE using)
+    const u = userId ?? req.user?.id ?? req.user?._id;
+    if (!u || !mongoose.isValidObjectId(u)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid userId (not a Mongo ObjectId)",
+        debug: { userId: u },
+      });
+    }
+    const userIdObj = new mongoose.Types.ObjectId(u);
+
+    // ---- Address sanity (your UI often lacks firstName)
+    if (!addressInfo?.address || !addressInfo?.city) {
+      return res.status(400).json({
+        success: false,
+        message: "Address information incomplete",
+        where: "validation.address",
+        debug: { got: addressInfo },
+      });
+    }
+    if (!addressInfo.firstName) {
+      addressInfo.firstName = req.user?.name || req.user?.firstName || "Customer";
     }
 
-    const amountNum = Number(totalAmount);
-    if (!amountNum || Number.isNaN(amountNum) || amountNum <= 0) {
-      return res.status(400).json({ success: false, message: "Invalid total amount" });
+    // ---- Amount: trust client if > 0, else fallback to recompute
+    let amountNum = Number(totalAmount);
+    if (!(amountNum > 0)) {
+      const recomputed = (cartItems || []).reduce((sum, r) => {
+        const p = moneyToNumber(r?.price ?? r?.salePrice ?? r?.finalPrice ?? r?.unitPrice ?? r?.amount);
+        const q = Number(r?.quantity ?? r?.qty ?? 0);
+        if (!Number.isFinite(p) || !Number.isFinite(q) || p <= 0 || q <= 0) return sum;
+        return sum + p * q;
+      }, 0);
+      amountNum = Math.round(recomputed * 100) / 100;
+      if (!(amountNum > 0)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid total amount (server computed ${amountNum})`,
+          where: "validation.amount",
+        });
+      }
     }
 
-    // 1) Create the order
+    // ---- Read enums from schemas and normalize desired values
+    const orderStatusEnum          = Order.schema.path("orderStatus")?.options?.enum || [];
+    const orderPaymentStatusEnum   = Order.schema.path("paymentStatus")?.options?.enum || [];
+    const paymentStatusEnumPayment = Payment.schema.path("paymentStatus")?.options?.enum || [];
+
+    // Logical defaults (what we "mean")
+    const desiredOrderStatus   = orderStatus   ?? "PENDING";
+    const desiredPaymentStatus = paymentStatus ?? "PENDING";
+
+    // Map to the exact enum values the models accept (handles case)
+    const normOrderStatus  = normalizeToEnum(desiredOrderStatus,   orderStatusEnum);
+    const normOrderPay     = normalizeToEnum(desiredPaymentStatus, orderPaymentStatusEnum);
+    const normPaymentModel = normalizeToEnum(desiredPaymentStatus, paymentStatusEnumPayment);
+
+    console.log("[createOrder] enums", {
+      orderStatusEnum,
+      orderPaymentStatusEnum,
+      paymentStatusEnumPayment,
+      chosen: { orderStatus: normOrderStatus, orderPaymentStatus: normOrderPay, paymentModelStatus: normPaymentModel },
+    });
+
+    // ---- Create Order
     const order = await Order.create({
-      userId: mongoose.isValidObjectId(userId)
-        ? new mongoose.Types.ObjectId(userId)
-        : userId,
+      userId: userIdObj,
       cartId: cartId || "",
       cartItems,
       addressInfo,
-      orderStatus: orderStatus || "PENDING",
-      paymentMethod: paymentMethod || "payhere",
-      paymentStatus: paymentStatus || "PENDING",
+      orderStatus: normOrderStatus,                // enum-safe for Order
+      paymentMethod: (paymentMethod || "payhere").toLowerCase(),
+      paymentStatus: normOrderPay,                 // enum-safe for Order
       totalAmount: amountNum,
       orderDate: orderDate || new Date(),
       orderUpdateDate: orderUpdateDate || new Date(),
@@ -59,32 +142,34 @@ const createOrder = async (req, res) => {
       payerId: "",
     });
 
-    // 2) Create a PENDING payment row
+    // ---- Create Payment row (initial)
     await Payment.create({
       orderId: order._id,
-      userId: order.userId,
+      userId: userIdObj,
       provider: "payhere",
       paymentMethod: "payhere",
-      paymentStatus: "PENDING",
+      paymentStatus: normPaymentModel,             // enum-safe for Payment
       amount: amountNum,
       currency: "LKR",
     });
 
-    // 3) Build PayHere payload
-    const orderId = String(order._id);
-    const amountStr = amountNum.toFixed(2);
+    // ---- Build PayHere payload
+    const orderIdStr = String(order._id);
+    const amountStr  = amountNum.toFixed(2);
 
     const payment = {
       sandbox: isSandbox(),
       merchant_id: merchantId,
-      return_url: `${appBaseUrl}/payhere-return?orderId=${orderId}`,
-      cancel_url: `${appBaseUrl}/payhere-cancel?orderId=${orderId}`,
-      // IMPORTANT: this must be PUBLICLY reachable by PayHere (use ngrok in dev)
+
+      return_url: `${appBaseUrl}/payhere-return?orderId=${orderIdStr}`,
+      cancel_url: `${appBaseUrl}/payhere-cancel?orderId=${orderIdStr}`,
       notify_url: `${apiBaseUrl}/api/shop/payment/payhere/ipn`,
-      order_id: orderId,
+
+      order_id: orderIdStr,
       items: "Cart Purchase",
       amount: amountStr,
       currency: "LKR",
+
       first_name: addressInfo?.firstName || "Customer",
       last_name:  addressInfo?.lastName  || "",
       email:      addressInfo?.email     || "",
@@ -94,25 +179,35 @@ const createOrder = async (req, res) => {
       country:    addressInfo?.country   || "Sri Lanka",
     };
 
-    // Sign the request
+    // ---- SIGN hash AFTER payment object is built
     payment.hash = generateCheckoutHash({
       merchantId,
-      orderId,
+      orderId: orderIdStr,
       amount: amountStr,
       currency: "LKR",
       merchantSecret,
     });
-    payment.hash_value = payment.hash; // some SDKs expect `hash_value`
+    payment.hash_value = payment.hash; // some SDKs read this key
 
-    return res.status(200).json({ success: true, payment, orderId });
+    console.log("[createOrder] OK →", { orderId: orderIdStr, amount: payment.amount });
+
+    return res.status(200).json({
+      success: true,
+      message: "Order created successfully",
+      payment,
+      orderId: orderIdStr,
+    });
   } catch (e) {
     console.error("createOrder error:", e);
-    return res.status(500).json({ success: false, message: "Some error occured!" });
+    return res.status(500).json({
+      success: false,
+      message: `Server error in createOrder: ${e?.message || "unknown"}`,
+    });
   }
 };
 
 /* -------------------------------------------------------
- * PayHere IPN — update Order + Payment
+ * PayHere IPN — update Order + Payment (enum-safe)
  * ------------------------------------------------------- */
 const handlePayHereNotify = async (req, res) => {
   try {
@@ -122,15 +217,14 @@ const handlePayHereNotify = async (req, res) => {
       payment_id,
       payhere_amount,
       payhere_currency,
-      status_code, // "2" success
+      status_code,          // "2" success, "0" pending, otherwise failed
       md5sig,
-      method, // e.g. VISA
+      method,               // e.g. VISA
       status_message,
       customer_token,
       card_holder_name,
     } = req.body;
 
-    // Allow bypass in dev for local/IPN testing:
     const skipVerify = String(process.env.PAYHERE_ALLOW_UNVERIFIED || "").toLowerCase() === "true";
     if (!skipVerify) {
       const okSig = verifyIPNSignature({
@@ -148,22 +242,36 @@ const handlePayHereNotify = async (req, res) => {
     const order = await Order.findById(order_id);
     if (!order) return res.status(404).send("Order not found");
 
-    let paymentStatus = "PENDING";
-    if (String(status_code) === "2") paymentStatus = "PAID";
-    else if (String(status_code) === "0") paymentStatus = "PENDING";
-    else paymentStatus = "FAILED";
+    // Logical mapping from PayHere → "PENDING/PAID/FAILED"
+    let logicalPayment = "PENDING";
+    if (String(status_code) === "2")      logicalPayment = "PAID";
+    else if (String(status_code) === "0") logicalPayment = "PENDING";
+    else                                   logicalPayment = "FAILED";
 
-    // Update order
-    order.paymentStatus = paymentStatus;
-    order.orderStatus   = paymentStatus === "PAID" ? "CONFIRMED"
-                       : paymentStatus === "FAILED" ? "CANCELLED"
-                       : order.orderStatus;
-    order.paymentId       = payment_id || "";
-    order.payerId         = customer_token || "";
+    // Enum sets from models
+    const orderStatusEnum          = Order.schema.path("orderStatus")?.options?.enum || [];
+    const orderPaymentStatusEnum   = Order.schema.path("paymentStatus")?.options?.enum || [];
+    const paymentStatusEnumPayment = Payment.schema.path("paymentStatus")?.options?.enum || [];
+
+    // Normalize for Order.paymentStatus and Payment.paymentStatus
+    const normalizedOrderPaymentStatus = normalizeToEnum(logicalPayment, orderPaymentStatusEnum);
+    const normalizedPaymentModelStatus = normalizeToEnum(logicalPayment, paymentStatusEnumPayment);
+
+    // For orderStatus: PAID → CONFIRMED, FAILED → CANCELLED, else keep
+    const logicalOrderStatusTarget = logicalPayment === "PAID" ? "CONFIRMED"
+                                     : logicalPayment === "FAILED" ? "CANCELLED"
+                                     : order.orderStatus;
+    const normalizedOrderStatus = normalizeToEnum(logicalOrderStatusTarget, orderStatusEnum);
+
+    // Apply updates to Order
+    order.paymentStatus  = normalizedOrderPaymentStatus;
+    order.orderStatus    = normalizedOrderStatus;
+    order.paymentId      = payment_id || "";
+    order.payerId        = customer_token || "";
     order.orderUpdateDate = new Date();
     await order.save();
 
-    // Upsert payment
+    // Upsert Payment row
     await Payment.findOneAndUpdate(
       { orderId: order._id },
       {
@@ -171,7 +279,7 @@ const handlePayHereNotify = async (req, res) => {
           userId: order.userId,
           provider: "payhere",
           paymentMethod: "payhere",
-          paymentStatus,
+          paymentStatus: normalizedPaymentModelStatus,
           amount: Number(payhere_amount || order.totalAmount || 0),
           currency: payhere_currency || "LKR",
           providerPaymentId: payment_id || "",
@@ -199,7 +307,7 @@ const getOrderDetails = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
     return res.status(200).json({ success: true, data: order });
-  } catch {
+  } catch (e) {
     return res.status(500).json({ success: false, message: "Error" });
   }
 };
@@ -208,7 +316,7 @@ const getAllOrdersByUser = async (req, res) => {
   try {
     const orders = await Order.find({ userId: req.params.userId }).sort({ orderDate: -1 });
     return res.status(200).json({ success: true, data: orders });
-  } catch {
+  } catch (e) {
     return res.status(500).json({ success: false, message: "Error" });
   }
 };

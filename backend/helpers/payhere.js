@@ -2,6 +2,7 @@
 const crypto = require("crypto");
 
 function isSandbox() {
+  // PAYHERE_MODE = "live" to enable live gateway; anything else → sandbox
   return (process.env.PAYHERE_MODE || "sandbox").toLowerCase() !== "live";
 }
 
@@ -10,19 +11,22 @@ function toAmountTwoDecimals(num) {
 }
 
 /**
- * Checkout hash
- * MD5( merchant_id + order_id + amount + currency + MD5(merchant_secret).toUpperCase() ).toUpperCase()
+ * PayHere checkout hash
+ * raw = merchant_id + order_id + amount + currency + md5(merchant_secret).toUpperCase()
+ * final = md5(raw).toUpperCase()
  */
 function generateCheckoutHash({ merchantId, orderId, amount, currency, merchantSecret }) {
   const amountStr = toAmountTwoDecimals(amount);
   const secretMd5 = crypto.createHash("md5").update(merchantSecret).digest("hex").toUpperCase();
   const raw = `${merchantId}${orderId}${amountStr}${currency}${secretMd5}`;
-  return crypto.createHash("md5").update(raw).digest("hex").toUpperCase();
+  const hash = crypto.createHash("md5").update(raw).digest("hex").toUpperCase();
+  return hash;
 }
 
 /**
- * IPN hash verification
- * MD5( merchant_id + order_id + payhere_amount + payhere_currency + status_code + MD5(merchant_secret).toUpperCase() ).toUpperCase()
+ * IPN signature verification
+ * raw = merchant_id + order_id + payhere_amount + payhere_currency + status_code + md5(merchant_secret).toUpperCase()
+ * final = md5(raw).toUpperCase() === md5sig
  */
 function verifyIPNSignature({
   merchantId,

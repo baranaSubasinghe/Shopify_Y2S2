@@ -10,7 +10,7 @@ import {
   getAllOrdersForAdmin,
   getOrderDetailsForAdmin,
   updateOrderStatus,
-} from "@/store/admin/order-slice";
+} from "@/store/admin/order-slice/index";
 import { toast } from "sonner";
 
 // ⬇️ PDF helper (relative path is safest)

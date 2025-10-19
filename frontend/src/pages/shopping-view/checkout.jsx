@@ -57,14 +57,20 @@ function ShoppingCheckout() {
   const orderData = {
     userId: user?.id,
     cartId: cartItems?._id,
-    cartItems: items.map((row) => ({
-      productId: row?.productId,
-      title: row?.title,
-      image: row?.image,
-      price:
-        (Number(row?.salePrice) > 0 ? Number(row?.salePrice) : Number(row?.price)) || 0,
-      quantity: Number(row?.quantity) || 0,
-    })),
+ cartItems: items.map((row) => {
+   const raw = row?.salePrice ?? row?.price ?? row?.finalPrice ?? row?.unitPrice ?? row?.amount;
+   const cleaned = String(raw ?? "").replace(/[^0-9.]/g, "");
+   const price = Number(cleaned);
+   const quantity = Number(row?.quantity ?? row?.qty ?? 1);
+  return {
+     productId: row?.productId ?? row?._id ?? row?.id,
+     title: row?.title ?? row?.name,
+     image: row?.image,
+     price: Number.isFinite(price) && price > 0 ? price : 0,
+     quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 0,
+   };
+ }),
+ 
     addressInfo: {
       addressId: currentSelectedAddress?._id,
       firstName: currentSelectedAddress?.firstName,
@@ -96,11 +102,12 @@ function ShoppingCheckout() {
       window.payhere.onError = (error) => toast.error(`Payment error: ${error}`);
       window.payhere.startPayment(data.payment);
     })
-    .catch((err) => {
-      setIsPaymentStart(false);
-      console.error("createNewOrder error:", err);
-      toast.error("Payment start failed.");
-    });
+   .catch((err) => {
+  setIsPaymentStart(false);
+  const data = err?.response?.data;
+  console.error("createNewOrder error:", data || err);
+  toast.error(data?.message || err.message || "Payment start failed.");
+});
 }
 
 

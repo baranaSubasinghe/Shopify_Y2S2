@@ -30,6 +30,9 @@ import PayHereReturn from "./pages/shopping-view/payhere-return";
 import PayHereCancel from "./pages/shopping-view/payhere-cancel";
 import CheckAuth from "./components/common/check-auth";
 import AiChatbot from "./components/ai/chatbot";
+import DeliveryLayout from "./components/delivery-view/layout";
+import DeliveryDashboard from "./pages/delivery-view/dashboard";
+
 import { Skeleton } from "@/components/ui/skeleton";
 import { checkAuth } from "./store/auth-slice";
 import axios from "axios";
@@ -98,6 +101,16 @@ function App() {
           <Route path="account" element={<ShoppingAccount />} />
           <Route path="search" element={<SearchProducts />} />
         </Route>
+        <Route
+            path="/delivery"
+            element={
+              <CheckAuth isAuthenticated={isAuthenticated} user={user}>
+                <DeliveryLayout />
+              </CheckAuth>
+            }
+          >
+    <Route path="dashboard" element={<DeliveryDashboard />} />
+  </Route>
 
         {/* OTHER ROUTES */}
         <Route path="/unauth-page" element={<UnauthPage />} />

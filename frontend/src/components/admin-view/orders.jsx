@@ -19,6 +19,10 @@ import {
   resetOrderDetails,
 } from "@/store/admin/order-slice";
 import { Badge } from "../ui/badge";
+import axios from "axios";
+import { toast } from "sonner";
+
+const API = import.meta.env.VITE_API_URL || "http://localhost:5001";
 
 // ⬇️ add this import
 import { exportOrdersListPDF } from "../../utils/pdf/adminOrderReports";
@@ -28,6 +32,31 @@ function AdminOrdersView() {
   const [query, setQuery] = useState(""); // search text
   const { orderList, orderDetails } = useSelector((state) => state.adminOrder);
   const dispatch = useDispatch();
+  const [staff, setStaff] = useState([]);
+
+async function loadStaff() {
+  try {
+    const res = await axios.get(`${API}/api/admin/orders/delivery-staff`, { withCredentials: true });
+    setStaff(res.data?.data || []);
+  } catch (err) {
+    console.error("Failed to load delivery staff", err);
+  }
+}
+
+async function assign(orderId, userId) {
+  try {
+    await axios.post(
+      `${API}/api/admin/orders/assign`,
+      { orderId, userId },
+      { withCredentials: true }
+    );
+    toast.success("Delivery staff assigned successfully!");
+    dispatch(getAllOrdersForAdmin()); // refresh
+  } catch (e) {
+    console.error(e);
+    toast.error(e?.response?.data?.message || "Assign failed");
+  }
+}
 
   const LKR = (n) => `Rs. ${Number(n ?? 0).toLocaleString("en-LK")}`;
 
@@ -47,9 +76,10 @@ function AdminOrdersView() {
     dispatch(getOrderDetailsForAdmin(id));
   }
 
-  useEffect(() => {
-    dispatch(getAllOrdersForAdmin());
-  }, [dispatch]);
+ useEffect(() => {
+  dispatch(getAllOrdersForAdmin());
+  loadStaff(); // ⬅️ also load delivery staff
+}, [dispatch]);
 
   useEffect(() => {
     if (orderDetails) setOpenDetailsDialog(true);
@@ -124,6 +154,7 @@ function AdminOrdersView() {
               <TableHead>Order Date</TableHead>
               <TableHead>Order Status</TableHead>
               <TableHead>Order Price</TableHead>
+               <TableHead>Assign Staff</TableHead> 
               <TableHead>
                 <span className="sr-only">Details</span>
               </TableHead>
@@ -162,6 +193,20 @@ function AdminOrdersView() {
                         dispatch(resetOrderDetails());
                       }}
                     >
+                      <TableCell>
+  <select
+    className="border rounded px-2 py-1 text-sm"
+    value={orderItem?.assignedTo?._id || ""}
+    onChange={(e) => assign(orderItem?._id, e.target.value)}
+  >
+    <option value="">Assign delivery staff…</option>
+    {staff.map((s) => (
+      <option key={s._id} value={s._id}>
+        {s.userName} ({s.email})
+      </option>
+    ))}
+  </select>
+</TableCell>
                       <Button
                         onClick={() =>
                           handleFetchOrderDetails(orderItem?._id)

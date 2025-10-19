@@ -1,5 +1,6 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import axios from "axios";
+const API = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
 
 const initialState = {
   payment: null,  
@@ -14,8 +15,9 @@ export const createNewOrder = createAsyncThunk(
   "/order/createNewOrder",
   async (orderData) => {
     const response = await axios.post(
-      "http://localhost:5001/api/shop/order/create",
-      orderData
+      `${API}/api/shop/order/create`,
+      orderData,
+      { withCredentials: true }           // ✅ send cookies/session to backend
     );
 
     return response.data;
@@ -26,12 +28,13 @@ export const capturePayment = createAsyncThunk(
   "/order/capturePayment",
   async ({ paymentId, payerId, orderId }) => {
     const response = await axios.post(
-      "http://localhost:5001/api/shop/order/capture",
+      `${API}/api/shop/order/capture`,
       {
         paymentId,
         payerId,
         orderId,
-      }
+      },
+      { withCredentials: true }     
     );
 
     return response.data;
@@ -42,7 +45,8 @@ export const getAllOrdersByUserId = createAsyncThunk(
   "/order/getAllOrdersByUserId",
   async (userId) => {
     const response = await axios.get(
-      `http://localhost:5001/api/shop/order/list/${userId}`
+      `http://localhost:5001/api/shop/order/list/${userId}`,
+      { withCredentials: true }     
     );
 
     return response.data;
@@ -53,7 +57,8 @@ export const getOrderDetails = createAsyncThunk(
   "/order/getOrderDetails",
   async (id) => {
     const response = await axios.get(
-      `http://localhost:5001/api/shop/order/details/${id}`
+      `http://localhost:5001/api/shop/order/details/${id}`,
+      { withCredentials: true }     
     );
 
     return response.data;
@@ -114,6 +119,6 @@ const shoppingOrderSlice = createSlice({
   },
 });
 
-export const { resetOrderDetails,resetPayment  } = shoppingOrderSlice.actions;
+export const { resetOrderDetails  } = shoppingOrderSlice.actions;
 
 export default shoppingOrderSlice.reducer;
