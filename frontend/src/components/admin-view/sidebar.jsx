@@ -19,6 +19,8 @@ const adminSidebarMenuItems = [
   { id: "user",      label: "Users",     path: "/admin/users",     icon: <User /> },
   { id: "reviews",   label: "reviews",   path: "/admin/reviews",   icon: <MessageSquare /> },
   { id: "payments",  label: "Payments",  path: "/admin/payments",  icon: <CreditCard /> }, // ✅ new
+  { id: "images",  label: "Images",  path: "/admin/images",  icon: <MessageSquare /> },
+  
 ];
 
 function MenuItems({ setOpen }) {

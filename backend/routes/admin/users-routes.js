@@ -11,6 +11,8 @@ const {
 router.get("/",         authMiddleware, adminOnly, ctrl.getAllUsers);
 router.get("/stats", authMiddleware, adminOnly, ctrl.getUserStats); 
 router.delete("/:id",   authMiddleware, adminOnly, ctrl.deleteUserById);
+router.get("/summary", authMiddleware, adminOnly, ctrl.getUsersSummary);
 router.patch("/:id/role", authMiddleware, adminOnly, ctrl.updateUserRole);
+router.get("/delivery/active", authMiddleware, adminOnly, ctrl.getActiveDeliveryStaff);
 
 module.exports = router;

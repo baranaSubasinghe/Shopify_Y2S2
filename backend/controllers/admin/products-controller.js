@@ -1,5 +1,6 @@
 const { imageUploadUtil } = require("../../helpers/cloudinary");
 const Product = require("../../models/Product");
+const Order = require("../../models/Order"); // <— needed for top-selling aggregation
 
 // ---------- helpers ----------
 const toNumber = (v, d = 0) => {
@@ -7,7 +8,6 @@ const toNumber = (v, d = 0) => {
   const n = Number(v);
   return Number.isNaN(n) ? d : n;
 };
-
 
 const clampNonNegative = (n) => (n < 0 ? 0 : n);
 
@@ -27,7 +27,6 @@ const handleImageUpload = async (req, res) => {
     const b64 = Buffer.from(req.file.buffer).toString("base64");
     const url = "data:" + req.file.mimetype + ";base64," + b64;
     const result = await imageUploadUtil(url);
-
     res.json({ success: true, result });
   } catch (error) {
     console.log(error);
@@ -50,21 +49,22 @@ const addProduct = async (req, res) => {
       averageReview,
     } = req.body;
 
-    // coerce & sanitize numbers
     const _price = clampNonNegative(toNumber(price, 0));
     const _salePrice = clampNonNegative(toNumber(salePrice, 0));
     const _totalStock = clampNonNegative(Math.trunc(toNumber(totalStock, 0)));
     const _avgReview = toNumber(averageReview, 0);
 
-    // business validation
     const issues = validateNonNegative({
       price: _price,
       salePrice: _salePrice,
       totalStock: _totalStock,
     });
-    if (!title || !category || !brand) issues.push("title, category and brand are required");
+    if (!title || !category || !brand)
+      issues.push("title, category and brand are required");
     if (issues.length) {
-      return res.status(400).json({ success: false, message: issues.join(", ") });
+      return res
+        .status(400)
+        .json({ success: false, message: issues.join(", ") });
     }
 
     const newlyCreatedProduct = new Product({
@@ -88,7 +88,7 @@ const addProduct = async (req, res) => {
 };
 
 // ---------- fetch all products ----------
-const fetchAllProducts = async (req, res) => {
+const fetchAllProducts = async (_req, res) => {
   try {
     const listOfProducts = await Product.find({});
     res.status(200).json({ success: true, data: listOfProducts });
@@ -116,47 +116,49 @@ const editProduct = async (req, res) => {
 
     let findProduct = await Product.findById(id);
     if (!findProduct) {
-      return res.status(404).json({ success: false, message: "Product not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Product not found" });
     }
 
-    // compute next values (only sanitize if provided)
     const next = { ...findProduct._doc };
 
     if (typeof title !== "undefined") next.title = title || findProduct.title;
-    if (typeof description !== "undefined") next.description = description || findProduct.description;
-    if (typeof category !== "undefined") next.category = category || findProduct.category;
+    if (typeof description !== "undefined")
+      next.description = description || findProduct.description;
+    if (typeof category !== "undefined")
+      next.category = category || findProduct.category;
     if (typeof brand !== "undefined") next.brand = brand || findProduct.brand;
     if (typeof image !== "undefined") next.image = image || findProduct.image;
 
-    if (typeof price !== "undefined") next.price = clampNonNegative(toNumber(price, findProduct.price));
+    if (typeof price !== "undefined")
+      next.price = clampNonNegative(toNumber(price, findProduct.price));
     if (typeof salePrice !== "undefined")
-      next.salePrice = clampNonNegative(toNumber(salePrice, findProduct.salePrice));
+      next.salePrice = clampNonNegative(
+        toNumber(salePrice, findProduct.salePrice)
+      );
     if (typeof totalStock !== "undefined")
-      next.totalStock = clampNonNegative(Math.trunc(toNumber(totalStock, findProduct.totalStock)));
+      next.totalStock = clampNonNegative(
+        Math.trunc(toNumber(totalStock, findProduct.totalStock))
+      );
     if (typeof averageReview !== "undefined")
-      next.averageReview = toNumber(averageReview, findProduct.averageReview);
+      next.averageReview = toNumber(
+        averageReview,
+        findProduct.averageReview
+      );
 
-    // business validation
     const issues = validateNonNegative({
       price: next.price,
       salePrice: next.salePrice,
       totalStock: next.totalStock,
     });
     if (issues.length) {
-      return res.status(400).json({ success: false, message: issues.join(", ") });
+      return res
+        .status(400)
+        .json({ success: false, message: issues.join(", ") });
     }
 
-    // assign and save
-    findProduct.title = next.title;
-    findProduct.description = next.description;
-    findProduct.category = next.category;
-    findProduct.brand = next.brand;
-    findProduct.price = next.price;
-    findProduct.salePrice = next.salePrice;
-    findProduct.totalStock = next.totalStock;
-    findProduct.image = next.image;
-    findProduct.averageReview = next.averageReview;
-
+    Object.assign(findProduct, next);
     await findProduct.save();
     res.status(200).json({ success: true, data: findProduct });
   } catch (e) {
@@ -172,15 +174,117 @@ const deleteProduct = async (req, res) => {
     const product = await Product.findByIdAndDelete(id);
 
     if (!product) {
-      return res.status(404).json({ success: false, message: "Product not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Product not found" });
     }
 
-    res.status(200).json({ success: true, message: "Product deleted successfully" });
+    res
+      .status(200)
+      .json({ success: true, message: "Product deleted successfully" });
   } catch (e) {
     console.log(e);
     res.status(500).json({ success: false, message: "Error occurred" });
   }
 };
+
+// ---------- top selling (aggregate from Orders) ----------
+async function getTopSellingProducts(req, res, next) {
+  try {
+    const limit = Math.max(1, Math.min(Number(req.query.limit) || 8, 20));
+
+    const rows = await Order.aggregate([
+      { $unwind: "$cartItems" },
+
+      // try to convert productId (string) -> ObjectId when possible
+      {
+        $addFields: {
+          _pidString: { $ifNull: ["$cartItems.productId", ""] },
+        },
+      },
+      {
+        $addFields: {
+          _pidObj: {
+            $cond: [
+              { $and: [{ $eq: [{ $strLenCP: "$_pidString" }, 24] }] },
+              { $toObjectId: "$_pidString" },
+              null,
+            ],
+          },
+        },
+      },
+
+      // group on productId when available, otherwise on title as a fallback
+      {
+        $group: {
+          _id: {
+            pid: "$_pidObj",
+            title: "$cartItems.title",
+          },
+          soldCount: {
+            $sum: {
+              $toInt: { $ifNull: ["$cartItems.quantity", 0] },
+            },
+          },
+          revenue: {
+            $sum: {
+              $multiply: [
+                { $toDouble: { $ifNull: ["$cartItems.price", 0] } },
+                { $toInt: { $ifNull: ["$cartItems.quantity", 0] } },
+              ],
+            },
+          },
+          // keep one sample item for image/price fallback
+          _sample: { $first: "$cartItems" },
+        },
+      },
+
+      { $sort: { soldCount: -1 } },
+      { $limit: limit },
+
+      // join back to products only when _id.pid exists
+      {
+        $lookup: {
+          from: "products",
+          localField: "_id.pid",
+          foreignField: "_id",
+          as: "prod",
+        },
+      },
+      { $unwind: { path: "$prod", preserveNullAndEmptyArrays: true } },
+
+      {
+        $project: {
+          _id: { $ifNull: ["$prod._id", "$_id.pid"] },
+          name: {
+            $ifNull: [
+              "$prod.title",
+              { $ifNull: ["$_id.title", "$_sample.title"] },
+            ],
+          },
+          image: {
+            $ifNull: [
+              "$prod.image",
+              { $arrayElemAt: ["$prod.images", 0] },
+            ],
+          },
+          price: {
+            $ifNull: [
+              "$prod.salePrice",
+              { $ifNull: ["$prod.finalPrice", "$prod.price"] },
+            ],
+          },
+          soldCount: 1,
+          revenue: 1,
+        },
+      },
+    ]);
+
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    next ? next(err) : res.status(500).json({ success: false });
+  }
+}
 
 module.exports = {
   handleImageUpload,
@@ -188,4 +292,5 @@ module.exports = {
   fetchAllProducts,
   editProduct,
   deleteProduct,
+  getTopSellingProducts, // <— exported
 };

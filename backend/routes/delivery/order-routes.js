@@ -4,10 +4,21 @@ const mongoose = require("mongoose");
 const { authMiddleware } = require("../../controllers/auth/auth-controller");
 const requireRole = require("../../middleware/require-role");
 const Order = require("../../models/Order");
+const ctrl = require("../../controllers/delivery/order-controller");
+const Payment = require("../../models/Payment");
 
-// GET /api/delivery/orders/my
-// backend/routes/delivery/orders-routes.js
-
+function requireDelivery(req, res, next) {
+  const role = String(req.user?.role || "").toLowerCase();
+  if (role !== "delivery" && role !== "admin") {
+    return res.status(403).json({ success: false, message: "Forbidden" });
+  }
+  next();
+}
+const deliveryOrAdmin = (req, res, next) => {
+  const role = String(req.user?.role || "").toLowerCase();
+  if (role === "delivery" || role === "admin") return next();
+  return res.status(403).json({ success: false, message: "Forbidden" });
+};
 // GET /api/delivery/orders/my
 router.get(
   "/my",
@@ -120,5 +131,97 @@ router.patch(
     }
   }
 );
+
+function normalizeToEnum(raw, allowed = []) {
+  const s = String(raw ?? "").trim();
+  if (!Array.isArray(allowed) || allowed.length === 0) return s;
+  const hit = allowed.find(v => String(v).toLowerCase() === s.toLowerCase());
+  return hit ?? allowed[0]; // fallback to first enum value
+}
+// PATCH /api/delivery/orders/:id/cod-collected
+// Marks COD as PAID and upserts Payment row.
+// Auth: delivery OR admin
+router.patch("/:id/cod-collected", authMiddleware, deliveryOrAdmin, async (req, res) => {
+  const log = (...a) => console.log("[cod-collected]", ...a);
+  try {
+    const { id } = req.params;
+    log("IN", { id, user: { id: req.user?._id, role: req.user?.role } });
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ success: false, message: "Invalid order id" });
+    }
+
+    const order = await Order.findById(id);
+    if (!order) {
+      log("Order not found");
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    // must be COD
+    const method = String(order.paymentMethod || "").toLowerCase();
+    if (method !== "cod") {
+      log("Not COD", { method: order.paymentMethod });
+      return res.status(400).json({ success: false, message: "Not a COD order" });
+    }
+
+    // normalize enums against schema to avoid validation errors
+    const orderStatusEnum  = Order.schema.path("orderStatus")?.options?.enum || [];
+    const payStatusEnumOrd = Order.schema.path("paymentStatus")?.options?.enum || [];
+    const payStatusEnumPay = Payment.schema.path("paymentStatus")?.options?.enum || [];
+
+    const nextPayOrd  = normalizeToEnum("PAID",  payStatusEnumOrd);
+    const nextPayPay  = normalizeToEnum("PAID",  payStatusEnumPay);
+
+    // for orderStatus: keep DELIVERED if already delivered; otherwise CONFIRMED
+    const targetOrderStatus = (String(order.orderStatus || "").toUpperCase() === "DELIVERED")
+      ? "DELIVERED"
+      : "CONFIRMED";
+    const nextOrderStatus = normalizeToEnum(targetOrderStatus, orderStatusEnum);
+
+    order.paymentStatus   = nextPayOrd;
+    order.orderStatus     = nextOrderStatus;
+    order.codCollectedAt  = new Date();             // ok even if not in schema
+    order.codCollectedBy  = req.user?._id;          // ok even if not in schema
+    order.orderUpdateDate = new Date();
+
+    log("Saving order", {
+      orderId: order._id.toString(),
+      paymentStatus: order.paymentStatus,
+      orderStatus: order.orderStatus,
+    });
+    await order.save();
+
+    const amount = Number(order.totalAmount || 0);
+
+    const payDoc = await Payment.findOneAndUpdate(
+      { orderId: order._id },
+      {
+        $set: {
+          userId: order.userId,
+          provider: "cod",
+          paymentMethod: "cod",
+          paymentStatus: nextPayPay,
+          amount,
+          currency: "LKR",
+          providerPaymentId: order.paymentId || `COD-${order._id}`,
+          payerId: String(req.user?._id || ""),
+          message: "COD collected by delivery",
+          ipnAt: new Date(),
+        },
+      },
+      { upsert: true, new: true }
+    );
+
+    log("OK", { order: order._id.toString(), payment: payDoc?._id?.toString() });
+    return res.json({
+      success: true,
+      data: { _id: order._id, paymentStatus: order.paymentStatus, orderStatus: order.orderStatus },
+    });
+  } catch (err) {
+    console.error("cod-collected error:", err);
+    // expose minimal hint to help you now; remove in prod if you want
+    return res.status(500).json({ success: false, message: "Failed to mark COD collected", error: err?.message });
+  }
+});
 
 module.exports = router;

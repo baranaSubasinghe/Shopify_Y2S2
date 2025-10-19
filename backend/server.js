@@ -21,7 +21,9 @@ const shopAddressRouter    = require("./routes/shop/address-routes");
 const shopOrderRouter      = require("./routes/shop/order-routes");     // <-- one source of truth
 const shopSearchRouter     = require("./routes/shop/search-routes");
 const shopReviewRouter     = require("./routes/shop/review-routes");
-const shopPaymentRouter    = require("./routes/shop/payment-routes");   // PayHere IPN lives here
+const shopPaymentRouter    = require("./routes/shop/payment-routes");
+const shopOrderRoutes = require("./routes/shop/order-routes");
+
 
 const deliveryOrdersRouter = require("./routes/delivery/order-routes");
 const aiRouter             = require("./routes/common/ai-routes");
@@ -97,6 +99,7 @@ app.use("/api/admin/users",      adminUsersRouter);
 app.use("/api/admin/reviews",    adminReviewsRouter);
 app.use("/api/admin/payments",   adminPaymentRouter);
 
+app.use("/api/shop", shopOrderRoutes);
 app.use("/api/shop/products",    shopProductsRouter);
 app.use("/api/shop/cart",        shopCartRouter);
 app.use("/api/shop/address",     shopAddressRouter);

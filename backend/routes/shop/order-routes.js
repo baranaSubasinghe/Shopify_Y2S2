@@ -1,7 +1,7 @@
 // backend/routes/shop/order-routes.js
 const express = require("express");
 const router = express.Router();
-
+const ctrl = require("../../controllers/shop/order-controller");
 const {
   createOrder,
   capturePayment,       // not used by PayHere
@@ -9,6 +9,9 @@ const {
   getOrderDetails,
   handlePayHereNotify,
   downloadInvoicePDF,
+  createOrderCOD,
+
+  getMyOrders
 } = require("../../controllers/shop/order-controller");
 
 const { authMiddleware } = require("../../controllers/auth/auth-controller");
@@ -23,6 +26,7 @@ const { authMiddleware } = require("../../controllers/auth/auth-controller");
  *  POST   /api/shop/order/notify               (PayHere IPN – if you use this path)
  * ----------------------------------------- */
 
+router.get("/orders/my", authMiddleware, getMyOrders);
 // Create
 router.post("/create", authMiddleware, createOrder);
 
@@ -53,5 +57,6 @@ router.post("/notify", handlePayHereNotify);
 // router.get("/orders/:id/invoice", authMiddleware, (req, res) =>
 //   res.redirect(301, `/api/shop/order/${req.params.id}/invoice`)
 // );
+router.post("/create-cod", authMiddleware, createOrderCOD);
 
 module.exports = router;
