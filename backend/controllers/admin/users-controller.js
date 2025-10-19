@@ -1,15 +1,38 @@
 // backend/controllers/admin/users-controller.js
 const User = require("../../models/User");
 
-// helper
+// --- helpers ---
 async function isLastAdmin(userId) {
+  // how many admins exist?
   const count = await User.countDocuments({ role: "admin" });
   if (count > 1) return false;
-  // if only one admin remains, check if that admin is the same user
+  // if only one admin remains, is that the same user?
   const me = await User.findById(userId).select("_id role");
-  return me && me.role === "admin" && count === 1;
+  return !!me && me.role === "admin" && count === 1;
 }
 
+// GET /api/admin/users/stats
+exports.getUserStats = async (_req, res) => {
+  try {
+    const byRole = await User.aggregate([
+      { $group: { _id: "$role", count: { $sum: 1 } } },
+    ]);
+
+    const map = Object.fromEntries(byRole.map(r => [String(r._id || "").toLowerCase(), r.count]));
+    const admins   = map.admin   || 0;
+    const delivery = map.delivery|| 0;
+    const users    = map.user    || 0;
+    const total    = admins + delivery + users;
+
+    return res.json({
+      success: true,
+      data: { total, admins, delivery, users }
+    });
+  } catch (err) {
+    console.error("getUserStats error:", err);
+    return res.status(500).json({ success: false, message: "Server error." });
+  }
+};
 // GET /api/admin/users
 exports.getAllUsers = async (req, res) => {
   try {
@@ -36,6 +59,7 @@ exports.getAllUsers = async (req, res) => {
       User.countDocuments(filter),
     ]);
 
+    // ⚠️ keep the same response shape your UI expects
     return res.json({
       success: true,
       data: { items, total, page: Number(page), limit: Number(limit) },
@@ -78,25 +102,32 @@ exports.deleteUserById = async (req, res) => {
   }
 };
 
-// PATCH /api/admin/users/:id/role  { role: "admin"|"user" } OR { newRole: "admin"|"user" }
+// PATCH /api/admin/users/:id/role
+// Body: { role: "admin" | "delivery" | "user" }  (or { newRole: ... })
 exports.updateUserRole = async (req, res) => {
   try {
     const { id } = req.params;
     const incoming = req.body?.role || req.body?.newRole;
     const nextRole = typeof incoming === "string" ? incoming.toLowerCase() : "";
 
-    if (!["admin", "user"].includes(nextRole)) {
-      return res.status(400).json({ success: false, message: "Invalid role value." });
+    // ✅ now supports "delivery" as well
+    const ALLOWED = new Set(["admin", "delivery", "user"]);
+    if (!ALLOWED.has(nextRole)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid role value. Use one of: admin, delivery, user.",
+      });
     }
 
     const requesterId = String(req.user?.id || req.user?._id || "");
-    const sameUser = requesterId && requesterId === String(id);
+    const isSelf = requesterId && requesterId === String(id);
 
-    // Safety: don't let the last admin demote themself
-    if (sameUser && nextRole === "user" && (await isLastAdmin(id))) {
+    // Safety: don't let the last admin demote themself to delivery/user
+    if (isSelf && nextRole !== "admin" && (await isLastAdmin(id))) {
       return res.status(400).json({
         success: false,
-        message: "You are the last admin. Create another admin before demoting yourself.",
+        message:
+          "You are the last admin. Create another admin before changing your own role.",
       });
     }
 
@@ -110,6 +141,7 @@ exports.updateUserRole = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
+    // ⚠️ keep the same response shape your UI expects
     return res.json({ success: true, data: updated });
   } catch (err) {
     console.error("updateUserRole error:", err);
