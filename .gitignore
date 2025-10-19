@@ -1,1 +1,60 @@
-frontend/node_modules/@humanfs/core/src/path.js
+# === ENV & Secrets ===
+.env
+*.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env
+cookies.txt
+
+# === Node ===
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# === Build Artifacts ===
+dist/
+build/
+coverage/
+.DS_Store
+*.log
+*.tmp
+*.pid
+*.seed
+*.bak
+
+# === Frontend (Vite / React) ===
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.cache/
+frontend/.parcel-cache/
+frontend/.output/
+
+# === Backend ===
+backend/node_modules/
+backend/dist/
+backend/uploads/
+backend/logs/
+backend/.cache/
+
+# === IDE / System Files ===
+.vscode/
+.idea/
+*.iml
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+Thumbs.db
+
+# === OS junk ===
+.DS_Store
+ehthumbs.db
+Icon?

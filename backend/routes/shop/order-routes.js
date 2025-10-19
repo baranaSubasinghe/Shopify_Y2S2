@@ -1,26 +1,30 @@
 const express = require("express");
-
+const router = express.Router();
 const {
   createOrder,
+  capturePayment,       // not used by PayHere
   getAllOrdersByUser,
   getOrderDetails,
-  capturePayment,
   handlePayHereNotify,
-  downloadInvoicePDF, // ✅ NEW: invoice generator
+  downloadInvoicePDF,
 } = require("../../controllers/shop/order-controller");
 
-const router = express.Router();
+const { authMiddleware } = require("../../controllers/auth/auth-controller");
 
-router.post("/create", createOrder);
-router.post("/capture", capturePayment);
+// create
+router.post("/create", authMiddleware, createOrder);
 
-// PayHere IPN posts x-www-form-urlencoded
-router.post("/notify", express.urlencoded({ extended: false }), handlePayHereNotify);
+// (compat) capture-payment endpoint (not used)
+router.post("/capture", authMiddleware, capturePayment);
 
-router.get("/list/:userId", getAllOrdersByUser);
-router.get("/details/:id", getOrderDetails);
+// lists/details
+router.get("/list/:userId", authMiddleware, getAllOrdersByUser);
+router.get("/details/:id", authMiddleware, getOrderDetails);
 
-// ✅ NEW: Download invoice PDF for a given order
-router.get("/invoice/:id", downloadInvoicePDF);
+// invoice
+router.get("/invoice/:id.pdf", authMiddleware, downloadInvoicePDF);
+
+// PayHere IPN (no auth, called by PayHere servers)
+router.post("/notify", handlePayHereNotify);
 
 module.exports = router;

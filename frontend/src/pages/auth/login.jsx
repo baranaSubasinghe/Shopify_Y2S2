@@ -37,21 +37,29 @@ function AuthLogin() {
 
     const res = await dispatch(loginUser({ email, password }));
 
-    if (res?.payload?.success) {
-      toast.success(res?.payload?.message || "Login successful!");
+ if (res?.payload?.success) {
+  toast.success(res?.payload?.message || "Login successful!");
 
-      // figure out where to go:
-      const from = location.state?.from?.pathname; // where the guard sent us from
-      const roleFromPayload = res?.payload?.data?.user?.role;
-      const role = roleFromPayload || user?.role;
+  // Where to go after login:
+  const search = new URLSearchParams(location.search);
+  const next = search.get("next"); // e.g. "/delivery/dashboard" from the email
 
-      const fallback =
-        role === "admin" ? "/admin/dashboard" : "/shop/home";
+  const roleFromPayload = res?.payload?.user?.role || res?.payload?.data?.user?.role;
+  const role = roleFromPayload || user?.role;
 
-      navigate(from || fallback, { replace: true });
-    } else {
-      toast.error(res?.payload?.message || "Login failed!");
-    }
+  // If a next param is present, prefer it (esp. for delivery)
+  if (next) {
+    navigate(next, { replace: true });
+    return;
+  }
+
+  // Fallback by role
+  if (role === "delivery") navigate("/delivery/dashboard", { replace: true });
+  else if (role === "admin") navigate("/admin/dashboard", { replace: true });
+  else navigate("/shop/home", { replace: true });
+} else {
+  toast.error(res?.payload?.message || "Login failed!");
+}
   }
 
   return (

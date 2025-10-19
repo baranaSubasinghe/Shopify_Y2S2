@@ -22,7 +22,7 @@ const UserSchema = new mongoose.Schema(
     password: { type: String, required: true ,select: false},
     resetPasswordToken:   { type: String, index: true, default: null },
     resetPasswordExpires: { type: Date,   default: null },
-    role: { type: String, enum: ["user", "admin"], default: "user" ,required: true},
+    role: { type: String, enum: ["user", "admin","delivery"], default: "user" ,required: true},
   },
   { timestamps: true }
 );

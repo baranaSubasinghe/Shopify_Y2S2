@@ -1,5 +1,6 @@
 // backend/server.js
-require("dotenv").config();
+require("dotenv").config(); 
+
 const express = require("express");
 const mongoose = require("mongoose");
 const cookieParser = require("cookie-parser");
@@ -22,7 +23,9 @@ const commonFeatureRouter = require("./routes/common/feature-routes");
 const adminPaymentRouter  = require("./routes/admin/payment-routes");
 const shopPaymentRouter   = require("./routes/shop/payment-routes"); // PayHere IPN
 
+const deliveryOrdersRouter = require("./routes/delivery/order-routes");
 const aiRouter = require("./routes/common/ai-routes");
+
 
 /* -------- Config -------- */
 const PORT        = Number(process.env.PORT || 5001);
@@ -121,7 +124,12 @@ app.use("/api/shop/order", shopOrderRouter);
 app.use("/api/shop/search", shopSearchRouter);
 app.use("/api/shop/review", shopReviewRouter);
 app.use("/api/common/feature", commonFeatureRouter);
+app.use("/api/delivery/orders", deliveryOrdersRouter);
+app.use("/api/admin/orders", require("./routes/admin/order-routes"));
+app.use("/api/delivery/orders", require("./routes/delivery/order-routes"));
+app.use("/api/shop/order", require("./routes/shop/order-routes"));
 app.use("/api/ai", aiRouter);
+
 
 /* -------- Health -------- */
 app.get("/api/health", (_req, res) =>
