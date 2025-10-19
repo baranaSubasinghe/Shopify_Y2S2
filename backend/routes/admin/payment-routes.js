@@ -2,19 +2,24 @@
 const express = require("express");
 const router = express.Router();
 
+const ctrl = require("../../controllers/admin/payment-controller");
 const {
   // existing handlers (keep)
   getAllPayments,
   exportPaymentsPDF,
   findOrderByPaymentId,
-  updatePaymentStatus,   // ✅ NEW (existing in your file)
-  deletePayment,         // ✅ NEW (existing in your file)
-
-  // additional handlers (add)
+  updatePaymentStatus,   
+  deletePayment, 
+  markCodCollected,
+  markOrderPending,
+  markOrderFailed,
+  markOrderPaid,    
   listPaymentOrders,
-  markOrderPaid,
+
   getPaymentSummary,
+
 } = require("../../controllers/admin/payment-controller");
+const { authMiddleware, adminOnly } = require("../../controllers/auth/auth-controller");
 
 /* ---------- Existing: List + search + export ---------- */
 router.get("/", getAllPayments);
@@ -22,7 +27,8 @@ router.get("/export/pdf", exportPaymentsPDF);
 router.get("/find", findOrderByPaymentId); // ?paymentId=PH123...
 
 /* ---------- Existing: Mutations ---------- */
-router.patch("/:id", updatePaymentStatus); // body: { paymentStatus, [orderStatus], [paymentId] }
+// router.patch("/:id", updatePaymentStatus);
+router.put("/update-status", updatePaymentStatus); // body: { paymentStatus, [orderStatus], [paymentId] }
 router.delete("/:id", deletePayment);
 
 /* ---------- Added: Orders-focused payment views ---------- */
@@ -30,9 +36,19 @@ router.delete("/:id", deletePayment);
 router.get("/orders", listPaymentOrders);
 
 // PATCH /api/admin/payments/orders/:id/mark-paid
-router.patch("/orders/:id/mark-paid", markOrderPaid);
+// router.patch("/orders/:id/mark-paid", markOrderPaid);
 
 // GET /api/admin/payments/summary
 router.get("/summary", getPaymentSummary);
 
+router.patch(
+  "/orders/:id/cod-collected",
+  authMiddleware,
+  adminOnly,
+  ctrl.markCODCollected
+);
+
+router.patch("/orders/:id/mark-paid",    authMiddleware, adminOnly, markOrderPaid);
+router.patch("/orders/:id/mark-pending", authMiddleware, adminOnly, markOrderPending);
+router.patch("/orders/:id/mark-failed",  authMiddleware, adminOnly, markOrderFailed);
 module.exports = router;

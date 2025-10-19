@@ -1,14 +1,16 @@
 // backend/controllers/shop/order-controller.js
 const mongoose = require("mongoose");
+const PDFDocument = require("pdfkit");
+
 const Order = require("../../models/Order");
 const Payment = require("../../models/Payment");
-const PDFDocument = require("pdfkit");
+const Product = require("../../models/Product");
+
 const {
   isSandbox,
   generateCheckoutHash,
   verifyIPNSignature,
 } = require("../../helpers/payhere");
-const Product = require("../../models/Product");
 
 // ---- ENV
 const merchantId     = process.env.PAYHERE_MERCHANT_ID;
@@ -26,7 +28,6 @@ function normalizeToEnum(raw, allowed) {
   return hit ?? allowed[0];
 }
 
-// read first positive/finite price-like field from a product doc
 function pickDbUnitPrice(p) {
   const candidates = [
     p?.salePrice,
@@ -44,28 +45,16 @@ function pickDbUnitPrice(p) {
   return 0;
 }
 
-// safe money format for PDF
-function fmt2(n) {
-  const x = Number(n);
-  return Number.isFinite(x) ? x.toFixed(2) : "0.00";
-}
-
 /* -------------------------------------------------------
- * Create Order + return PayHere payload
+ * Create Order (PayHere) + return PayHere payload
  * ------------------------------------------------------- */
 const createOrder = async (req, res) => {
   try {
-    console.log("[createOrder] IN:", JSON.stringify(req.body, null, 2));
-    console.log("[createOrder] PH cfg:", !!merchantId, !!merchantSecret);
-    if (!merchantId || !merchantSecret) {
-      return res.status(500).json({ success: false, message: "PayHere not configured" });
-    }
-
     const {
       userId,
       cartItems = [],
       addressInfo = {},
-      totalAmount,          // fallback only
+      totalAmount, // fallback
       cartId,
       orderStatus,
       paymentMethod,
@@ -74,44 +63,35 @@ const createOrder = async (req, res) => {
       orderUpdateDate,
     } = req.body || {};
 
-    // ---- userId
+    if (!merchantId || !merchantSecret) {
+      return res.status(500).json({ success: false, message: "PayHere not configured" });
+    }
+
+    // user
     const u = userId ?? req.user?.id ?? req.user?._id;
     if (!u || !mongoose.isValidObjectId(u)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid userId (not a Mongo ObjectId)",
-        debug: { userId: u },
-      });
+      return res.status(400).json({ success: false, message: "Invalid userId" });
     }
     const userIdObj = new mongoose.Types.ObjectId(u);
 
-    // ---- address (basic)
+    // address
     if (!addressInfo?.address || !addressInfo?.city) {
-      return res.status(400).json({
-        success: false,
-        message: "Address information incomplete",
-        debug: { got: addressInfo },
-      });
+      return res.status(400).json({ success: false, message: "Address information incomplete" });
     }
     if (!addressInfo.firstName) {
       addressInfo.firstName = req.user?.name || req.user?.firstName || "Customer";
     }
 
-    // ---- enums (exactly as your models expect)
+    // enums from schema
     const orderStatusEnum          = Order.schema.path("orderStatus")?.options?.enum || [];
     const orderPaymentStatusEnum   = Order.schema.path("paymentStatus")?.options?.enum || [];
     const paymentStatusEnumPayment = Payment.schema.path("paymentStatus")?.options?.enum || [];
 
-    const desiredOrderStatus   = orderStatus   ?? "PENDING";
-    const desiredPaymentStatus = paymentStatus ?? "PENDING";
+    const normOrderStatus  = normalizeToEnum(orderStatus ?? "PENDING", orderStatusEnum);
+    const normOrderPay     = normalizeToEnum(paymentStatus ?? "PENDING", orderPaymentStatusEnum);
+    const normPaymentModel = normalizeToEnum(paymentStatus ?? "PENDING", paymentStatusEnumPayment);
 
-    const normOrderStatus  = normalizeToEnum(desiredOrderStatus,   orderStatusEnum);
-    const normOrderPay     = normalizeToEnum(desiredPaymentStatus, orderPaymentStatusEnum);
-    const normPaymentModel = normalizeToEnum(desiredPaymentStatus, paymentStatusEnumPayment);
-
-    // =====================================================
-    // FIX: get unit prices from DB if client sent 0
-    // =====================================================
+    // ---- compute totals (prefer DB prices if client 0)
     const ids = (cartItems || [])
       .map((it) => String(it?.productId || ""))
       .filter(Boolean);
@@ -122,42 +102,34 @@ const createOrder = async (req, res) => {
           .lean()
       : [];
 
-    const priceMap = new Map(
-      dbProducts.map((p) => [String(p._id), pickDbUnitPrice(p)])
-    );
+    const priceMap = new Map(dbProducts.map((p) => [String(p._id), pickDbUnitPrice(p)]));
 
     const sanitizedCartItems = (cartItems || []).map((it) => {
-      const pid       = String(it?.productId || "");
-      const clientU   = Number(it?.price || it?.unitPrice || 0);
-      const dbU       = priceMap.get(pid) || 0;
-      const unit      = clientU > 0 ? clientU : dbU;
-      const qty       = Number(it?.quantity || 1);
+      const pid = String(it?.productId || "");
+      const clientU = Number(it?.price || it?.unitPrice || 0);
+      const dbU = priceMap.get(pid) || 0;
+      const unit = clientU > 0 ? clientU : dbU;
+      const qty  = Number(it?.quantity || 1);
       const lineTotal = Number.isFinite(unit * qty) ? Math.round(unit * qty * 100) / 100 : 0;
-
       return {
         ...it,
-        price: unit,            // keep same key your UI reads
+        price: unit,
         unitPrice: unit,
         quantity: qty,
         lineTotal,
       };
     });
 
-    // compute total; fallback to client total if necessary
-    let amountNum = sanitizedCartItems.reduce((sum, r) => sum + (r.lineTotal || 0), 0);
+    let amountNum = sanitizedCartItems.reduce((s, r) => s + (r.lineTotal || 0), 0);
     if (!(amountNum > 0)) {
       const clientTotal = Number(totalAmount);
       if (clientTotal > 0) amountNum = clientTotal;
     }
     if (!(amountNum > 0)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid total amount (computed ${amountNum})`,
-      });
+      return res.status(400).json({ success: false, message: "Invalid total amount" });
     }
-    // =====================================================
 
-    // ---- create order
+    // ---- create order (✅ store addressInfo!)
     const order = await Order.create({
       userId: userIdObj,
       cartId: cartId || "",
@@ -170,6 +142,7 @@ const createOrder = async (req, res) => {
       orderUpdateDate: orderUpdateDate || new Date(),
       paymentId: "",
       payerId: "",
+      addressInfo, // <-- important fix
     });
 
     // ---- create payment
@@ -183,7 +156,7 @@ const createOrder = async (req, res) => {
       currency: "LKR",
     });
 
-    // ---- PayHere payload (UNCHANGED)
+    // ---- PayHere payload
     const orderIdStr = String(order._id);
     const amountStr  = amountNum.toFixed(2);
 
@@ -206,7 +179,6 @@ const createOrder = async (req, res) => {
       country:    addressInfo?.country   || "Sri Lanka",
     };
 
-    // signature (UNCHANGED)
     payment.hash = generateCheckoutHash({
       merchantId,
       orderId: orderIdStr,
@@ -216,8 +188,6 @@ const createOrder = async (req, res) => {
     });
     payment.hash_value = payment.hash;
 
-    console.log("[createOrder] OK →", { orderId: orderIdStr, amount: payment.amount });
-
     return res.status(200).json({
       success: true,
       message: "Order created successfully",
@@ -226,15 +196,12 @@ const createOrder = async (req, res) => {
     });
   } catch (e) {
     console.error("createOrder error:", e);
-    return res.status(500).json({
-      success: false,
-      message: `Server error in createOrder: ${e?.message || "unknown"}`,
-    });
+    return res.status(500).json({ success: false, message: `Server error in createOrder: ${e?.message || "unknown"}` });
   }
 };
 
 /* -------------------------------------------------------
- * PayHere IPN — unchanged logic, enum-safe
+ * PayHere IPN — enum-safe, signature optional
  * ------------------------------------------------------- */
 const handlePayHereNotify = async (req, res) => {
   try {
@@ -244,7 +211,7 @@ const handlePayHereNotify = async (req, res) => {
       payment_id,
       payhere_amount,
       payhere_currency,
-      status_code,          // "2" success, "0" pending, else failed
+      status_code,
       md5sig,
       method,
       status_message,
@@ -328,22 +295,36 @@ const getOrderDetails = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
     return res.status(200).json({ success: true, data: order });
-  } catch (e) {
+  } catch {
     return res.status(500).json({ success: false, message: "Error" });
   }
 };
 
 const getAllOrdersByUser = async (req, res) => {
   try {
-    const orders = await Order.find({ userId: req.params.userId }).sort({ orderDate: -1 });
+    const orders = await Order.find({ userId: req.params.userId })
+      .sort({ orderDate: -1 });
     return res.status(200).json({ success: true, data: orders });
-  } catch (e) {
+  } catch {
+    return res.status(500).json({ success: false, message: "Error" });
+  }
+};
+
+const getMyOrders = async (req, res) => {
+  try {
+    const uid = req.user?.id || req.user?._id;
+    if (!uid) return res.status(401).json({ success: false, message: "Unauthorized" });
+    const orders = await Order.find({ userId: uid })
+      .sort({ orderDate: -1 })
+      .lean();
+    return res.status(200).json({ success: true, data: orders });
+  } catch {
     return res.status(500).json({ success: false, message: "Error" });
   }
 };
 
 /* -------------------------------------------------------
- * Invoice PDF (robust number formatting)
+ * Invoice PDF
  * ------------------------------------------------------- */
 const downloadInvoicePDF = async (req, res) => {
   try {
@@ -354,20 +335,14 @@ const downloadInvoicePDF = async (req, res) => {
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename=invoice-${orderId}.pdf`);
 
-    // ✅ define doc inside the function so res exists here
     const doc = new PDFDocument({ margin: 40, size: "A4" });
-
-    // ✅ add safe error handler — now res is in scope
     doc.on("error", (err) => {
       console.error("PDF stream error:", err);
-      if (!res.headersSent) {
-        res.status(500).end("Error generating PDF");
-      }
+      if (!res.headersSent) res.status(500).end("Error generating PDF");
     });
-
     doc.pipe(res);
 
-    // --- Header ---
+    // header
     doc.fontSize(22).fillColor("#111").text("INVOICE", { align: "center" });
     doc.moveDown(0.5);
     doc.fontSize(10).fillColor("#555").text(`Invoice ID: ${orderId}`);
@@ -376,7 +351,7 @@ const downloadInvoicePDF = async (req, res) => {
     doc.text(`Payment Method: ${order.paymentMethod || "-"}`);
     doc.moveDown();
 
-    // --- Bill To ---
+    // bill to
     const addr = order.addressInfo || {};
     doc.fontSize(12).fillColor("#000").text("Bill To:", { underline: true });
     doc.text(`${addr.firstName || "Customer"} ${addr.lastName || ""}`);
@@ -386,7 +361,7 @@ const downloadInvoicePDF = async (req, res) => {
     if (addr.country) doc.text(addr.country);
     doc.moveDown();
 
-    // --- Table ---
+    // table
     doc.fontSize(12).fillColor("#000").text("Items Purchased:", { underline: true });
     doc.moveDown(0.3);
 
@@ -404,22 +379,17 @@ const downloadInvoicePDF = async (req, res) => {
     doc.font("Helvetica");
 
     const items = Array.isArray(order.cartItems) ? order.cartItems : [];
-
     items.forEach((item) => {
-      const qty = Number(item?.quantity);
-      const unit = Number(item?.unitPrice ?? item?.price);
+      const qty   = Number(item?.quantity);
+      const unit  = Number(item?.unitPrice ?? item?.price);
       const total = Number(item?.lineTotal ?? qty * unit);
 
-      const qtySafe = Number.isFinite(qty) ? qty : 0;
-      const unitSafe = Number.isFinite(unit) ? unit : 0;
-      const totalSafe = Number.isFinite(total) ? total : 0;
-
       doc.text(String(item?.title || "-"), colX[0], y);
-      doc.text(String(qtySafe), colX[1], y, { width: 40, align: "right" });
-      doc.text(unitSafe.toFixed(2), colX[2], y, { width: 70, align: "right" });
-      doc.text(totalSafe.toFixed(2), colX[3], y, { width: 80, align: "right" });
+      doc.text(Number.isFinite(qty) ? qty : 0, colX[1], y, { width: 40, align: "right" });
+      doc.text(Number.isFinite(unit) ? unit.toFixed(2) : "0.00", colX[2], y, { width: 70, align: "right" });
+      doc.text(Number.isFinite(total) ? total.toFixed(2) : "0.00", colX[3], y, { width: 80, align: "right" });
 
-      y += 16; // fixed height
+      y += 16;
     });
 
     y += 10;
@@ -435,8 +405,83 @@ const downloadInvoicePDF = async (req, res) => {
   }
 };
 
+/* -------------------------------------------------------
+ * Create Order — Cash On Delivery
+ * ------------------------------------------------------- */
+const createOrderCOD = async (req, res) => {
+  try {
+    const {
+      userId,
+      cartItems = [],
+      addressInfo = {},
+      totalAmount,
+      cartId,
+      orderDate,
+      orderUpdateDate,
+    } = req.body || {};
 
-/* Not used by PayHere (kept for compatibility) */
+    const u = userId ?? req.user?.id ?? req.user?._id;
+    if (!u || !mongoose.isValidObjectId(u)) {
+      return res.status(400).json({ success: false, message: "Invalid userId" });
+    }
+
+    if (!addressInfo?.address || !addressInfo?.city) {
+      return res.status(400).json({ success: false, message: "Address information incomplete" });
+    }
+    if (!addressInfo.firstName) {
+      addressInfo.firstName = req.user?.name || req.user?.firstName || "Customer";
+    }
+
+    // recompute total if needed
+    let amountNum = Number(totalAmount);
+    if (!(amountNum > 0)) {
+      amountNum = (cartItems || []).reduce((sum, it) => {
+        const p = Number(it?.price || it?.salePrice || it?.finalPrice || it?.unitPrice || 0);
+        const q = Number(it?.quantity || 0);
+        return sum + (p > 0 && q > 0 ? p * q : 0);
+      }, 0);
+      amountNum = Math.round(amountNum * 100) / 100;
+      if (!(amountNum > 0)) {
+        return res.status(400).json({ success: false, message: "Invalid total amount" });
+      }
+    }
+
+    const order = await Order.create({
+      userId: new mongoose.Types.ObjectId(u),
+      cartId: cartId || "",
+      cartItems,
+      orderStatus: "PENDING",
+      paymentMethod: "cod",
+      paymentStatus: "PENDING",   // keep uppercase to match enums
+      totalAmount: amountNum,
+      orderDate: orderDate || new Date(),
+      orderUpdateDate: orderUpdateDate || new Date(),
+      paymentId: "",
+      payerId: "",
+      addressInfo,
+    });
+
+    await Payment.create({
+      orderId: order._id,
+      userId: order.userId,
+      provider: "cod",
+      paymentMethod: "cod",
+      paymentStatus: "PENDING",
+      amount: amountNum,
+      currency: "LKR",
+      providerPaymentId: "",
+    });
+
+    return res.status(200).json({ success: true, message: "COD order created", orderId: String(order._id) });
+  } catch (e) {
+    console.error("createOrderCOD error:", e);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+/* -------------------------------------------------------
+ * Not used by PayHere (compat)
+ * ------------------------------------------------------- */
 const capturePayment = async (_req, res) =>
   res.status(400).json({ success: false, message: "Not applicable for PayHere" });
 
@@ -447,4 +492,6 @@ module.exports = {
   getOrderDetails,
   handlePayHereNotify,
   downloadInvoicePDF,
+  createOrderCOD,
+  getMyOrders,
 };

@@ -223,17 +223,26 @@ const initials = (s="") => {
     }));
   }, [paySummary]);
 
-  // Only PAYHERE
-  const methodBars = useMemo(() => {
-    const filtered = (paySummary?.byMethod || []).filter(
-      m => String(m?._id ?? "").toLowerCase() === "payhere"
-    );
-    return filtered.map((m) => ({
-      method: String(m?._id ?? "payhere"),
-      orders: Number(m?.count || 0),
-      amount: Number(m?.amount || 0),
-    }));
-  }, [paySummary]);
+ 
+// Only PAYHERE and COD (case-insensitive)
+const methodBars = useMemo(() => {
+  const keep = new Set(["payhere", "cod"]);
+  const filtered = (paySummary?.byMethod || [])
+    .filter(m => keep.has(String(m?._id ?? "").toLowerCase()));
+
+  // Normalize into a consistent array for the chart
+  const norm = filtered.map((m) => ({
+    method: String(m?._id ?? "").toUpperCase(), // "PAYHERE" or "COD"
+    orders: Number(m?.count || 0),
+    amount: Number(m?.amount || 0),
+  }));
+  
+
+  // ensure deterministic order: PAYHERE then COD
+  const order = ["PAYHERE", "COD"];
+  norm.sort((a,b) => order.indexOf(a.method) - order.indexOf(b.method));
+  return norm;
+}, [paySummary]);
 
   // Revenue Trend
   const revenueTrend = useMemo(() => {
@@ -260,6 +269,12 @@ const initials = (s="") => {
     return [];
   }, [recentOrders, paySummary]);
 
+  // unique payment methods among the ones we support
+const methodCount = useMemo(() => {
+  const have = new Set((paySummary?.byMethod || []).map(m => String(m?._id || "").toLowerCase()));
+  // count only the methods we actually use/show
+  return ["payhere", "cod"].filter(m => have.has(m)).length;
+}, [paySummary]);
   return (
     <div className="space-y-6">
       {/* header */}
@@ -284,8 +299,12 @@ const initials = (s="") => {
           gradient="from-indigo-50 to-white"
         />
         <CardStat title="Orders (latest)" value={recentOrders.length} hint="Recent admin view" gradient="from-sky-50 to-white" />
-        <CardStat title="Payment Methods" value={(paySummary?.byMethod || []).filter(m => String(m?._id).toLowerCase()==="payhere").length} hint="Unique methods" gradient="from-emerald-50 to-white" />
-        <CardStat title="Payment States" value={(paySummary?.byStatus || []).filter(s => ["PAID","PENDING"].includes(String(s?._id).toUpperCase())).length} hint="paid / pending" gradient="from-amber-50 to-white" />
+        <CardStat
+          title="Payment Methods"
+          value={methodCount}
+          hint="Unique methods"
+          gradient="from-emerald-50 to-white"
+        />        <CardStat title="Payment States" value={(paySummary?.byStatus || []).filter(s => ["PAID","PENDING"].includes(String(s?._id).toUpperCase())).length} hint="paid / pending" gradient="from-amber-50 to-white" />
       </div>
 
       {/* FEATURE TILES */}

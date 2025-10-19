@@ -58,9 +58,14 @@ exports.getAllPayments = async (req, res, next) => {
     const skip = (Number(page) - 1) * Number(limit);
 
     const [items, total] = await Promise.all([
-      Order.find(filter).sort({ orderDate: -1 }).skip(skip).limit(Number(limit)).lean(),
-      Order.countDocuments(filter),
-    ]);
+  Order.find(filter)
+    .sort({ orderDate: -1 })
+    .skip(skip)
+    .limit(Number(limit))
+    .select("_id orderNumber totalAmount paymentMethod paymentStatus orderStatus orderDate addressInfo userId")
+    .lean(),
+  Order.countDocuments(filter),
+]);
 
     res.json({ success: true, page: Number(page), limit: Number(limit), total, items });
   } catch (err) {
@@ -234,25 +239,62 @@ exports.findOrderByPaymentId = async (req, res, next) => {
  * body: { paymentStatus, orderStatus?, paymentId? }
  * ✅ Updates Order AND upserts matching Payment doc
  */
-exports.updatePaymentStatus = async (req, res, next) => {
+exports.updatePaymentStatus = async (req, res) => {
   try {
-    const { id } = req.params; // Order _id
-    const { paymentStatus, orderStatus, paymentId } = req.body || {};
-    if (!paymentStatus && !orderStatus && !paymentId) {
-      return res.status(400).json({ success: false, message: "Nothing to update" });
+    const { paymentId, status } = req.body; // expects 'FAILED' or 'PENDING'
+
+    if (!paymentId || !status) {
+      return res.status(400).json({ success: false, message: "Missing paymentId or status" });
     }
 
-    const order = await Order.findById(id);
+    const validStatuses = ["PENDING", "PAID", "FAILED"];
+    const upperStatus = status.toUpperCase();
+
+    if (!validStatuses.includes(upperStatus)) {
+      return res.status(400).json({ success: false, message: "Invalid status" });
+    }
+
+    // Update payment
+    const payment = await Payment.findById(paymentId);
+    if (!payment) {
+      return res.status(404).json({ success: false, message: "Payment not found" });
+    }
+    payment.paymentStatus = upperStatus;
+    await payment.save();
+
+    // Sync order
+    await Order.findOneAndUpdate(
+      { _id: payment.orderId },
+      { paymentStatus: upperStatus, orderUpdateDate: new Date() }
+    );
+
+    return res.status(200).json({ success: true, message: `Payment marked as ${upperStatus}` });
+  } catch (err) {
+    console.error("updatePaymentStatus error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+/**
+ * PATCH /api/admin/payments/orders/:id/mark-pending
+ */
+exports.markOrderPending = async (req, res, next) => {
+  try {
+    const { id } = req.params; // Order _id
+    const order = await Order.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          paymentStatus: "PENDING",
+          // keep orderStatus unchanged; or set PROCESSING if you prefer:
+          // orderStatus: "PROCESSING",
+          orderUpdateDate: new Date(),
+        },
+      },
+      { new: true }
+    );
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
 
-    // normalize & update order
-    if (paymentStatus) order.paymentStatus = paymentStatus.toUpperCase();
-    if (orderStatus)   order.orderStatus   = orderStatus.toUpperCase();
-    if (paymentId)     order.paymentId     = paymentId;
-    order.orderUpdateDate = new Date();
-    await order.save();
-
-    // upsert payment row to stay in sync
     await Payment.findOneAndUpdate(
       { orderId: order._id },
       {
@@ -260,22 +302,62 @@ exports.updatePaymentStatus = async (req, res, next) => {
           userId: order.userId,
           provider: order.paymentMethod || "payhere",
           paymentMethod: order.paymentMethod || "payhere",
-          paymentStatus: order.paymentStatus,
+          paymentStatus: "PENDING",
           amount: order.totalAmount || 0,
           currency: "LKR",
-          providerPaymentId: order.paymentId || "",
           ipnAt: new Date(),
         },
       },
       { upsert: true, new: true }
     );
 
-    res.json({ success: true, item: { _id: order._id } });
+    res.json({ success: true, item: order.toObject() });
   } catch (err) {
     next(err);
   }
 };
 
+/**
+ * PATCH /api/admin/payments/orders/:id/mark-failed
+ */
+exports.markOrderFailed = async (req, res, next) => {
+  try {
+    const { id } = req.params; // Order _id
+    const order = await Order.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          paymentStatus: "FAILED",
+          // optionally cancel the order when payment failed:
+          // orderStatus: "CANCELLED",
+          orderUpdateDate: new Date(),
+        },
+      },
+      { new: true }
+    );
+    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+
+    await Payment.findOneAndUpdate(
+      { orderId: order._id },
+      {
+        $set: {
+          userId: order.userId,
+          provider: order.paymentMethod || "payhere",
+          paymentMethod: order.paymentMethod || "payhere",
+          paymentStatus: "FAILED",
+          amount: order.totalAmount || 0,
+          currency: "LKR",
+          ipnAt: new Date(),
+        },
+      },
+      { upsert: true, new: true }
+    );
+
+    res.json({ success: true, item: order.toObject() });
+  } catch (err) {
+    next(err);
+  }
+};
 /**
  * DELETE /api/admin/payments/:id
  * ✅ Removes order (or you can soft-cancel) AND deletes Payment row
@@ -312,10 +394,15 @@ exports.listPaymentOrders = async (req, res, next) => {
     const filter = makeFilterFromQuery(req.query);
     const skip = (Number(page) - 1) * Number(limit);
 
-    const [items, total] = await Promise.all([
-      Order.find(filter).sort({ orderDate: -1 }).skip(skip).limit(Number(limit)).lean(),
-      Order.countDocuments(filter),
-    ]);
+   const [items, total] = await Promise.all([
+  Order.find(filter)
+    .sort({ orderDate: -1 })
+    .skip(skip)
+    .limit(Number(limit))
+    .select("_id orderNumber totalAmount paymentMethod paymentStatus orderStatus orderDate addressInfo userId")
+    .lean(),
+  Order.countDocuments(filter),
+]);
 
     res.json({ success: true, page: Number(page), limit: Number(limit), total, items });
   } catch (err) {
@@ -377,18 +464,92 @@ exports.markOrderPaid = async (req, res, next) => {
  */
 exports.getPaymentSummary = async (_req, res, next) => {
   try {
+    // group by UPPER paymentStatus so "paid" and "PAID" are one bucket
     const byStatus = await Order.aggregate([
-      { $group: { _id: "$paymentStatus", count: { $sum: 1 }, amount: { $sum: "$totalAmount" } } },
+      {
+        $group: {
+          _id: { $toUpper: "$paymentStatus" },
+          count: { $sum: 1 },
+          amount: { $sum: { $ifNull: ["$totalAmount", 0] } },
+        },
+      },
       { $sort: { count: -1 } },
     ]);
 
+    // group by LOWER method so "PayHere" / "payhere" collapse
     const byMethod = await Order.aggregate([
-      { $group: { _id: "$paymentMethod", count: { $sum: 1 }, amount: { $sum: "$totalAmount" } } },
+      {
+        $group: {
+          _id: { $toLower: "$paymentMethod" },
+          count: { $sum: 1 },
+          amount: { $sum: { $ifNull: ["$totalAmount", 0] } },
+        },
+      },
       { $sort: { count: -1 } },
     ]);
 
     res.json({ success: true, byStatus, byMethod });
   } catch (err) {
+    next(err);
+  }
+};
+
+// PATCH /api/admin/payments/orders/:id/cod-collected
+/**
+ * PATCH /api/admin/payments/orders/:id/cod-collected
+ * Body (optional): { paymentId?, payerId? }
+ * Marks a COD order as PAID + CONFIRMED and upserts Payment row.
+ */
+ 
+// PATCH /api/admin/payments/orders/:id/cod-collected
+exports.markCODCollected = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const role = String(req.user?.role || "").toLowerCase();
+    if (!["admin", "delivery"].includes(role)) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+
+    const order = await Order.findById(id);
+    if (!order)
+      return res.status(404).json({ success: false, message: "Order not found" });
+
+    if (String(order.paymentMethod || "").toLowerCase() !== "cod")
+      return res.status(400).json({ success: false, message: "Not a COD order" });
+
+    if (String(order.paymentStatus || "").toUpperCase() === "PAID") {
+      return res.json({
+        success: true,
+        item: { _id: order._id, paymentStatus: order.paymentStatus },
+      });
+    }
+
+    order.paymentStatus = "PAID";
+    order.orderUpdateDate = new Date();
+    await order.save();
+
+    await Payment.findOneAndUpdate(
+      { orderId: order._id },
+      {
+        $set: {
+          userId: order.userId,
+          provider: "cod",
+          paymentMethod: "cod",
+          paymentStatus: "PAID",
+          amount: Number(order.totalAmount || 0),
+          currency: "LKR",
+          ipnAt: new Date(),
+        },
+      },
+      { upsert: true, new: true }
+    );
+
+    return res.json({
+      success: true,
+      item: { _id: order._id, paymentStatus: "PAID" },
+    });
+  } catch (err) {
+    console.error("markCODCollected error:", err);
     next(err);
   }
 };

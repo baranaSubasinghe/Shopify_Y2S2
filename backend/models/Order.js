@@ -40,7 +40,11 @@ const OrderSchema = new mongoose.Schema({
     default: "PENDING",
   },
 
-  paymentMethod: String,
+  paymentMethod: {
+  type: String,
+  enum: ['payhere', 'cod' ],
+  default: 'payhere'
+},
   paymentStatus: {
     type: String,
     enum: ["pending", "paid", "failed", "refunded"],

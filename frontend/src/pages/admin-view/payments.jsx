@@ -64,43 +64,28 @@ export default function AdminPaymentsPage() {
   // --- update status ---
   // Use the dedicated mark-paid endpoint for PAID,
   // fall back to legacy PATCH for other statuses.
-  const updateStatus = async (id, paymentStatus) => {
-    try {
-      let resp;
-      if (paymentStatus.toUpperCase() === "PAID") {
-        resp = await axios.patch(
-          `${API_BASE}/api/admin/payments/orders/${id}/mark-paid`,
-          {}, { withCredentials: true }
-        );
-      } else {
-        resp = await axios.patch(
-          `${API_BASE}/api/admin/payments/${id}`,
-          { paymentStatus: paymentStatus.toUpperCase() },
-          { withCredentials: true }
-        );
-      }
+ const updateStatus = async (id, paymentStatus) => {
+  try {
+    const target = paymentStatus.toUpperCase();
+    let url = `${API_BASE}/api/admin/payments/orders/${id}/mark-pending`;
+    if (target === "PAID")   url = `${API_BASE}/api/admin/payments/orders/${id}/mark-paid`;
+    if (target === "FAILED") url = `${API_BASE}/api/admin/payments/orders/${id}/mark-failed`;
 
-      const ok = resp?.data?.success;
-      if (ok) {
-        toast.success(`Updated to ${paymentStatus.toUpperCase()}`);
-        setRows((prev) =>
-          prev.map((r) =>
-            r._id === id ? { ...r, paymentStatus: paymentStatus.toUpperCase() } : r
-          )
-        );
-        setFiltered((prev) =>
-          prev.map((r) =>
-            r._id === id ? { ...r, paymentStatus: paymentStatus.toUpperCase() } : r
-          )
-        );
-      } else {
-        toast.error(resp?.data?.message || "Update failed");
-      }
-    } catch (e) {
-      console.error(e);
-      toast.error("Update failed");
+    const resp = await axios.patch(url, {}, { withCredentials: true });
+
+    if (resp?.data?.success) {
+      toast.success(`Updated to ${target}`);
+      // update local rows without refetch
+      setRows((prev) => prev.map((r) => (r._id === id ? { ...r, paymentStatus: target } : r)));
+      setFiltered((prev) => prev.map((r) => (r._id === id ? { ...r, paymentStatus: target } : r)));
+    } else {
+      toast.error(resp?.data?.message || "Update failed");
     }
-  };
+  } catch (e) {
+    console.error(e);
+    toast.error("Update failed");
+  }
+};
 
   // --- delete order/payment (legacy endpoint you already had) ---
   const deletePayment = async (id) => {
