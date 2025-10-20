@@ -13,7 +13,7 @@ import commonFeatureSlice from "./common-slice";
 import adminReviewsReducer from "./admin/reviews-slice";
 import accountReducer from "./account-slice";
 import notificationsReducer from "./admin/notification-slice/index.js";
-import userNotifsReducer from "./shop/user-notifications-slice/index";
+
 
 const store = configureStore({
   reducer: {
@@ -33,7 +33,7 @@ const store = configureStore({
     adminReviews: adminReviewsReducer,
     account: accountReducer,
     adminNotifications: notificationsReducer,
-    userNotifs: userNotifsReducer,
+
 
   },
 });
