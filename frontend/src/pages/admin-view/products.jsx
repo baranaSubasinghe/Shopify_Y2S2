@@ -1,6 +1,6 @@
 // frontend/src/pages/admin-view/products.jsx
 import ProductImageUpload from "@/components/admin-view/image-upload";
-import AdminProductTile from "@/components/admin-view/product-tile";
+import AdminProductCard from "@/components/admin-view/product-tile"; // ⬅️ use the new card
 import CommonForm from "@/components/common/form";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -28,10 +28,10 @@ const initialFormData = {
   averageReview: 0,
 };
 
-// --- helper: coerce to non-negative number ('' stays '')
+// coerce to non-negative number ('' stays '')
 const toNonNegativeNumber = (v) => {
   if (v === "" || v === null || typeof v === "undefined") return "";
-  const n = Number(String(v).replace(/[^\d.]/g, "")); // remove non-numeric except dot
+  const n = Number(String(v).replace(/[^\d.]/g, ""));
   if (Number.isNaN(n)) return 0;
   return n < 0 ? 0 : n;
 };
@@ -44,20 +44,15 @@ function AdminProducts() {
   const [imageLoadingState, setImageLoadingState] = useState(false);
   const [currentEditedId, setCurrentEditedId] = useState(null);
 
-  const LOW_STOCK_THRESHOLD =
-  Number(import.meta.env.VITE_LOW_STOCK_THRESHOLD || 5);
-
-  // search state
   const [search, setSearch] = useState("");
 
   const { productList } = useSelector((state) => state.adminProducts);
   const dispatch = useDispatch();
 
-  // --- sanitize numeric fields any time formData changes
+  // sanitize negatives if user types them
   useEffect(() => {
     setFormData((prev) => {
       const next = { ...prev };
-      // only sanitize when it’s actually negative or has a minus sign
       const p = String(prev.price);
       const sp = String(prev.salePrice);
       const ts = String(prev.totalStock);
@@ -79,7 +74,6 @@ function AdminProducts() {
   function onSubmit(event) {
     event.preventDefault();
 
-    // final guard before dispatch
     const price = Number(formData.price || 0);
     const salePrice = Number(formData.salePrice || 0);
     const totalStock = Number(formData.totalStock || 0);
@@ -88,38 +82,42 @@ function AdminProducts() {
       toast.error("Price, Sale Price, and Total Stock must be 0 or greater.");
       return;
     }
-
     if (salePrice > price) {
       toast.error("Sale Price cannot be greater than Price.");
       return;
     }
 
-    currentEditedId !== null
-      ? dispatch(editProduct({ id: currentEditedId, formData })).then((data) => {
-          if (data?.payload?.success) {
-            dispatch(fetchAllProducts());
-            setFormData(initialFormData);
-            setOpenCreateProductsDialog(false);
-            setCurrentEditedId(null);
-            toast.success("Product updated");
-          }
-        })
-      : dispatch(addNewProduct({ ...formData, image: uploadedImageUrl })).then((data) => {
-          if (data?.payload?.success) {
-            dispatch(fetchAllProducts());
-            setOpenCreateProductsDialog(false);
-            setImageFile(null);
-            setFormData(initialFormData);
-            toast.success("Product created");
-          }
-        });
+    const payload = {
+      ...formData,
+      image: currentEditedId ? formData.image : uploadedImageUrl, // if editing, keep whatever is in formData.image
+    };
+
+    if (currentEditedId !== null) {
+      dispatch(editProduct({ id: currentEditedId, formData: payload })).then((res) => {
+        if (res?.payload?.success) {
+          dispatch(fetchAllProducts());
+          resetEditor();
+          toast.success("Product updated");
+        }
+      });
+    } else {
+      dispatch(addNewProduct(payload)).then((res) => {
+        if (res?.payload?.success) {
+          dispatch(fetchAllProducts());
+          resetEditor();
+          toast.success("Product created");
+        }
+      });
+    }
   }
 
-  function handleDelete(getCurrentProductId) {
-    dispatch(deleteProduct(getCurrentProductId)).then((data) => {
-      if (data?.payload?.success) {
+  function handleDelete(id) {
+    dispatch(deleteProduct(id)).then((res) => {
+      if (res?.payload?.success) {
         dispatch(fetchAllProducts());
         toast.success("Product deleted");
+      } else {
+        toast.error(res?.payload?.message || "Delete failed");
       }
     });
   }
@@ -134,21 +132,24 @@ function AdminProducts() {
     const salePrice = Number(formData.salePrice || 0);
     const totalStock = Number(formData.totalStock || 0);
 
-    const numbersOk =
-      price >= 0 &&
-      salePrice >= 0 &&
-      totalStock >= 0 &&
-      // optional: sale price should not exceed price
-      salePrice <= price;
+    const numbersOk = price >= 0 && salePrice >= 0 && totalStock >= 0 && salePrice <= price;
 
     return baseValid && numbersOk;
   }
+
+  const resetEditor = () => {
+    setOpenCreateProductsDialog(false);
+    setCurrentEditedId(null);
+    setFormData(initialFormData);
+    setUploadedImageUrl("");
+    setImageFile(null);
+  };
 
   useEffect(() => {
     dispatch(fetchAllProducts());
   }, [dispatch]);
 
-  // filter for search (title / brand / category / ID)
+  // search filter (title / brand / category / id)
   const filteredProducts = useMemo(() => {
     if (!search.trim()) return productList || [];
     const q = search.toLowerCase();
@@ -163,9 +164,25 @@ function AdminProducts() {
 
   const onDownloadPDF = () => {
     const ok = generateProductsPDF(filteredProducts);
-    if (!ok) {
-      toast.error("Failed to generate PDF. Check console for details.");
-    }
+    if (!ok) toast.error("Failed to generate PDF. Check console for details.");
+  };
+
+  // when clicking "Edit" on a card
+  const openEdit = (prod) => {
+    setCurrentEditedId(prod._id);
+    setOpenCreateProductsDialog(true);
+    setUploadedImageUrl(prod.image || ""); // keep preview if your uploader uses it
+    setFormData({
+      image: prod.image || "",
+      title: prod.title || "",
+      description: prod.description || "",
+      category: prod.category || "",
+      brand: prod.brand || "",
+      price: prod.price ?? "",
+      salePrice: prod.salePrice ?? "",
+      totalStock: prod.totalStock ?? "",
+      averageReview: prod.averageReview ?? 0,
+    });
   };
 
   return (
@@ -195,17 +212,15 @@ function AdminProducts() {
         </div>
       </div>
 
-      {/* Products grid — IMPORTANT: render filteredProducts */}
+      {/* Products grid */}
       <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-4">
         {filteredProducts && filteredProducts.length > 0
-          ? filteredProducts.map((productItem) => (
-              <AdminProductTile
-                key={productItem?._id || productItem?.id}
-                setFormData={setFormData}
-                setOpenCreateProductsDialog={setOpenCreateProductsDialog}
-                setCurrentEditedId={setCurrentEditedId}
-                product={productItem}
-                handleDelete={handleDelete}
+          ? filteredProducts.map((p) => (
+              <AdminProductCard
+                key={p._id}
+                product={p}
+                onEdit={openEdit}
+                onDelete={handleDelete}
               />
             ))
           : null}
@@ -214,13 +229,7 @@ function AdminProducts() {
       {/* Add/Edit Sheet */}
       <Sheet
         open={openCreateProductsDialog}
-        onOpenChange={() => {
-          setOpenCreateProductsDialog(false);
-          setCurrentEditedId(null);
-          setFormData(initialFormData);
-          setUploadedImageUrl("");
-          setImageFile(null);
-        }}
+        onOpenChange={resetEditor}
       >
         <SheetContent side="right" className="overflow-auto">
           <SheetHeader>

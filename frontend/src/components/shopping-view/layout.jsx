@@ -23,7 +23,9 @@ function ShoppingLayout() {
       {/* Floating mic — sits above the chatbot button */}
       <div className="fixed right-6 bottom-28 z-[80] ">
         <VoiceAssistant />
+        
       </div>
+      
 
       {/* “Ask for products” button */}
       {showChatbot && (

@@ -1,3 +1,4 @@
+// frontend/src/pages/shopping-view/listing.jsx
 import ProductFilter from "@/components/shopping-view/filter";
 import ProductDetailsDialog from "@/components/shopping-view/product-details";
 import ShoppingProductTile from "@/components/shopping-view/product-tile";
@@ -20,6 +21,30 @@ import { useEffect, useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useSearchParams } from "react-router-dom";
 import axios from "axios";
+import { toast } from "sonner";
+
+/* ----------------------------- fuzzy helpers ----------------------------- */
+const norm = (s = "") =>
+  String(s).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+function levenshtein(a = "", b = "") {
+  a = norm(a);
+  b = norm(b);
+  const m = a.length, n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  const dp = Array.from({ length: m + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] =
+        a[i - 1] === b[j - 1]
+          ? dp[i - 1][j - 1]
+          : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
 
 function ShoppingListing() {
   const dispatch = useDispatch();
@@ -59,7 +84,6 @@ function ShoppingListing() {
       .get(`${api}/api/shop/products/${openId}`)
       .then((res) => {
         if (res.data?.success && res.data?.product) {
-          // Manually hydrate details reducer so dialog can open
           dispatch({
             type: "shopProducts/fetchProductDetails/fulfilled",
             payload: res.data,
@@ -111,45 +135,85 @@ function ShoppingListing() {
     dispatch(fetchProductDetails(getCurrentProductId));
   }
 
-async function handleAddtoCart(getCurrentProductId, getTotalStock) {
-  const uid = user?._id || user?.id;
-  if (!isAuthenticated || !uid) {
-    console.warn("User not authenticated");
-    return;
-  }
+  async function handleAddtoCart(getCurrentProductId, getTotalStock) {
+    const uid = user?._id || user?.id;
+    if (!isAuthenticated || !uid) {
+      console.warn("User not authenticated");
+      return;
+    }
 
-  // Avoid multiple toasts here
-  let getCartItems = cartItems.items || [];
-  if (getCartItems.length) {
-    const indexOfCurrentItem = getCartItems.findIndex(
-      (item) => item.productId === getCurrentProductId
-    );
-    if (indexOfCurrentItem > -1) {
-      const getQuantity = getCartItems[indexOfCurrentItem].quantity;
-      if (getQuantity + 1 > getTotalStock) {
-        console.warn(`Only ${getQuantity} quantity can be added for this item`);
-        return;
+    let getCartItems = cartItems.items || [];
+    if (getCartItems.length) {
+      const indexOfCurrentItem = getCartItems.findIndex(
+        (item) => item.productId === getCurrentProductId
+      );
+      if (indexOfCurrentItem > -1) {
+        const getQuantity = getCartItems[indexOfCurrentItem].quantity;
+        if (getQuantity + 1 > getTotalStock) {
+          console.warn(`Only ${getQuantity} quantity can be added for this item`);
+          return;
+        }
       }
     }
-  }
 
-  // ✅ no toasts, just logic
-  try {
-    const res = await dispatch(
-      addToCart({
-        userId: uid,
-        productId: getCurrentProductId,
-        quantity: 1,
-      })
-    );
+    try {
+      const res = await dispatch(
+        addToCart({
+          userId: uid,
+          productId: getCurrentProductId,
+          quantity: 1,
+        })
+      );
 
-    if (res?.payload?.success) {
-      await dispatch(fetchCartItems(uid)); // refresh badge
+      if (res?.payload?.success) {
+        await dispatch(fetchCartItems(uid)); // refresh badge
+      }
+    } catch (err) {
+      console.error("AddToCart failed:", err);
     }
-  } catch (err) {
-    console.error("AddToCart failed:", err);
   }
-}
+
+  // ▶️ Voice: listen for "voice-add-to-cart" with { name, qty }
+  useEffect(() => {
+    if (!Array.isArray(productList) || productList.length === 0) return;
+
+    const onVoiceAdd = (e) => {
+      const { name, qty = 1 } = e.detail || {};
+      if (!name) return;
+
+      const target = norm(name);
+      const ranked = productList
+        .map((p) => {
+          const t = norm(p.title || p.name || "");
+          const d = levenshtein(t, target);
+          const includesBoost = t.includes(target) ? -2 : 0;
+          return { p, score: d + includesBoost };
+        })
+        .sort((a, b) => a.score - b.score);
+
+      const best = ranked[0];
+      if (!best || best.score > 4) {
+        toast.error(`Couldn't find a close match for “${name}”.`);
+        return;
+      }
+
+      const product = best.p;
+      const stock = Number(product?.totalStock ?? product?.stock ?? 9999);
+      const qtyNum = Math.max(1, Number(qty) || 1);
+
+      if (qtyNum > stock) {
+        toast.error(`Only ${stock} in stock for ${product.title || product.name}.`);
+        return;
+      }
+
+      // reuse your existing add-to-cart logic
+      handleAddtoCart(product._id || product.id, stock);
+      toast.success(`Added ${qtyNum} × ${product.title || product.name}`);
+    };
+
+    window.addEventListener("voice-add-to-cart", onVoiceAdd);
+    return () => window.removeEventListener("voice-add-to-cart", onVoiceAdd);
+  }, [productList, cartItems, isAuthenticated, user]); // deps safe for your logic
 
   useEffect(() => {
     setSort("price-lowtohigh");
