@@ -17,6 +17,7 @@ const adminReviewsRouter       = require("./routes/admin/reviews-routes");
 const adminPaymentRouter       = require("./routes/admin/payment-routes");
 const adminNotificationsRoutes = require("./routes/admin/notifications-routes");
 
+const shopOrderRoutes          = require("./routes/shop/order-routes");
 const shopProductsRouter       = require("./routes/shop/products-routes");
 const shopCartRouter           = require("./routes/shop/cart-routes");
 const shopAddressRouter        = require("./routes/shop/address-routes");
@@ -100,6 +101,8 @@ app.use("/api/admin/users",          adminUsersRouter);
 app.use("/api/admin/reviews",        adminReviewsRouter);
 app.use("/api/admin/payments",       adminPaymentRouter);
 app.use("/api/admin/notifications",  adminNotificationsRoutes);
+
+app.use("/api/shop",             shopOrderRoutes);
 
 app.use("/api/shop/products",        shopProductsRouter);
 app.use("/api/shop/cart",            shopCartRouter);
