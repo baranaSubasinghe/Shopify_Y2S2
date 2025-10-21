@@ -16,18 +16,8 @@ const {
 
 const { authMiddleware } = require("../../controllers/auth/auth-controller");
 
-/* -----------------------------------------
- * Paths here are relative to /api/shop/order
- * Final endpoints:
- *  POST   /api/shop/order/create
- *  GET    /api/shop/order/:id                  (order details)
- *  GET    /api/shop/order/user/:userId         (orders by user)
- *  GET    /api/shop/order/:id/invoice          (invoice PDF)
- *  POST   /api/shop/order/notify               (PayHere IPN – if you use this path)
- * ----------------------------------------- */
 
-router.get("/orders/my", authMiddleware, getMyOrders);
-// Create
+router.get(["/my", "/my-orders"], authMiddleware, getMyOrders);// Create
 router.post("/create", authMiddleware, createOrder);
 
 // (compat) capture-payment endpoint (not used by PayHere)

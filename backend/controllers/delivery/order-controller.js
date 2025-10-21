@@ -10,47 +10,69 @@ const toL = (s) => String(s || "").toLowerCase();
  * PATCH /api/delivery/orders/:id/cod-collected
  * Delivery marks a COD order as collected.
  */
-async function markCODCollected(req, res, next) {
+// inside backend/controllers/admin/payment-controller.js
+function pickValidOrderStatus(OrderModel, preferredList = ["DELIVERED", "CONFIRMED", "PROCESSING"]) {
+  const enumVals = (OrderModel.schema.path("orderStatus")?.options?.enum || [])
+    .map(v => String(v).toUpperCase());
+  for (const want of preferredList.map(s => String(s).toUpperCase())) {
+    if (enumVals.includes(want)) return want;
+  }
+  return enumVals[0] || null; // last resort: first enum or null (no change)
+}
+
+exports.markCODCollected = async (req, res, next) => {
   try {
-    const role = toL(req.user?.role);
-    if (role !== "delivery" && role !== "admin") {
+    const { id } = req.params;
+    const role = String(req.user?.role || "").toLowerCase();
+    if (!["admin", "delivery"].includes(role)) {
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
 
-    const { id } = req.params;
+    const Order   = require("../../models/Order");
+    const Payment = require("../../models/Payment");
+    const { notifyUser } = require("../../helpers/notify");
+
     const order = await Order.findById(id);
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
 
-    // (optional) ensure this order is assigned to the delivery user
-    // uncomment if you track assignment on order.assignedTo
-    // if (role === "delivery" && String(order.assignedTo) !== String(req.user._id)) {
-    //   return res.status(403).json({ success: false, message: "Not your order" });
-    // }
-
-    if (toL(order.paymentMethod) !== "cod") {
+    if (String(order.paymentMethod || "").toLowerCase() !== "cod") {
       return res.status(400).json({ success: false, message: "Not a COD order" });
     }
 
-    if (toU(order.paymentStatus) === "PAID") {
-      // already marked; return ok
-      return res.json({ success: true, item: { _id: order._id, paymentStatus: "PAID" } });
+    // if already paid: return early with current state
+    if (String(order.paymentStatus || "").toUpperCase() === "PAID") {
+      return res.json({
+        success: true,
+        item: { _id: order._id, paymentStatus: order.paymentStatus, orderStatus: order.orderStatus },
+      });
     }
 
-    // mark paid
-    order.paymentStatus = "PAID";
-    order.orderUpdateDate = new Date();
-    await order.save();
+    // choose an allowed next order status from your enum
+    const nextOrderStatus = pickValidOrderStatus(Order, ["DELIVERED", "CONFIRMED"]);
 
-    // keep Payment collection in sync
-    await Payment.findOneAndUpdate(
-      { orderId: order._id },
+    // persist with validation ON (so enum mismatches throw)
+    const updated = await Order.findByIdAndUpdate(
+      id,
       {
         $set: {
-          userId: order.userId,
+          paymentStatus: "PAID",
+          ...(nextOrderStatus ? { orderStatus: nextOrderStatus } : {}),
+          orderUpdateDate: new Date(),
+        },
+      },
+      { new: true, runValidators: true }
+    );
+
+    // keep Payment in sync
+    await Payment.findOneAndUpdate(
+      { orderId: updated._id },
+      {
+        $set: {
+          userId: updated.userId,
           provider: "cod",
           paymentMethod: "cod",
           paymentStatus: "PAID",
-          amount: Number(order.totalAmount || 0),
+          amount: Number(updated.totalAmount || 0),
           currency: "LKR",
           ipnAt: new Date(),
         },
@@ -58,15 +80,24 @@ async function markCODCollected(req, res, next) {
       { upsert: true, new: true }
     );
 
-    return res.json({ success: true, item: { _id: order._id, paymentStatus: "PAID" } });
+    // notify customer
+    const ref = updated.orderNumber || String(updated._id).slice(-6).toUpperCase();
+    await notifyUser(
+      updated.userId,
+      "ORDER",
+      `Order ${ref} ${nextOrderStatus === "DELIVERED" ? "delivered" : "updated"}`,
+      `Payment received (COD). Total ${updated.totalAmount} LKR.`,
+      { orderId: updated._id, method: "COD", via: role, orderStatus: updated.orderStatus }
+    );
+
+    return res.json({
+      success: true,
+      item: { _id: updated._id, paymentStatus: updated.paymentStatus, orderStatus: updated.orderStatus },
+    });
   } catch (err) {
-    console.error("markCODCollected (delivery) error:", err);
+    console.error("markCODCollected error:", err);
     next(err);
   }
-}
+};
 
 // ---- export (append to whatever you already export)
-module.exports = {
-  // ...other exports
-  markCODCollected,
-};

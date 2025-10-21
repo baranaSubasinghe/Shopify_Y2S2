@@ -17,7 +17,7 @@ const adminReviewsRouter       = require("./routes/admin/reviews-routes");
 const adminPaymentRouter       = require("./routes/admin/payment-routes");
 const adminNotificationsRoutes = require("./routes/admin/notifications-routes");
 
-const shopOrderRoutes          = require("./routes/shop/order-routes");
+
 const shopProductsRouter       = require("./routes/shop/products-routes");
 const shopCartRouter           = require("./routes/shop/cart-routes");
 const shopAddressRouter        = require("./routes/shop/address-routes");
@@ -25,6 +25,8 @@ const shopOrderRouter          = require("./routes/shop/order-routes");     // <
 const shopSearchRouter         = require("./routes/shop/search-routes");
 const shopReviewRouter         = require("./routes/shop/review-routes");
 const shopPaymentRouter        = require("./routes/shop/payment-routes");
+const shopUserNotifRouter = require("./routes/shop/user-notifications-routes");
+
 
 
 const deliveryOrdersRouter     = require("./routes/delivery/order-routes");
@@ -102,16 +104,17 @@ app.use("/api/admin/reviews",        adminReviewsRouter);
 app.use("/api/admin/payments",       adminPaymentRouter);
 app.use("/api/admin/notifications",  adminNotificationsRoutes);
 
-app.use("/api/shop",             shopOrderRoutes);
+
 
 app.use("/api/shop/products",        shopProductsRouter);
 app.use("/api/shop/cart",            shopCartRouter);
 app.use("/api/shop/address",         shopAddressRouter);
-app.use("/api/shop/order",           shopOrderRouter);      // invoice etc.
+app.use("/api/shop/order",           shopOrderRouter);   
+app.use("/api/shop/orders", shopOrderRouter);
 app.use("/api/shop/search",          shopSearchRouter);
 app.use("/api/shop/review",          shopReviewRouter);
 app.use("/api/shop/payment",         shopPaymentRouter);
-
+app.use("/api/shop/notifications", shopUserNotifRouter);
 
 app.use("/api/common/feature",       commonFeatureRouter);
 app.use("/api/delivery/orders",      deliveryOrdersRouter);
