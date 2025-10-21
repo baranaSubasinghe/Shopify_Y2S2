@@ -42,6 +42,7 @@ import CodPaymentsPage from "@/pages/delivery-view/cod";
 import { Skeleton } from "@/components/ui/skeleton";
 import { checkAuth } from "./store/auth-slice";
 import axios from "axios";
+import NotificationsPage from "./pages/shopping-view/notifications";
 axios.defaults.withCredentials = true;
 
 function App() {
@@ -114,7 +115,11 @@ function App() {
           <Route path="checkout" element={<ShoppingCheckout />} />
           <Route path="account" element={<ShoppingAccount />} />
           <Route path="search" element={<SearchProducts />} />
+          <Route path="notifications" element={<NotificationsPage />} />
         </Route>
+
+        
+        
 
         {/* DELIVERY (protected) */}
         <Route

@@ -5,6 +5,7 @@ const PDFDocument = require("pdfkit");
 const Order = require("../../models/Order");
 const Payment = require("../../models/Payment");
 const Product = require("../../models/Product");
+const { notifyUser } = require("../../helpers/notify");
 
 const {
   isSandbox,
@@ -26,23 +27,15 @@ function normalizeToEnum(raw, allowed = []) {
   const hit = allowed.find(v => String(v).toLowerCase() === s.toLowerCase());
   return hit ?? (allowed[0] ?? s);
 }
-
 function pickDbUnitPrice(p) {
-  const candidates = [
-    p?.salePrice,
-    p?.finalPrice,
-    p?.price,
-    p?.regularPrice,
-    p?.listPrice,
-    p?.amount,
-    p?.unitPrice,
-  ];
+  const candidates = [p?.salePrice, p?.finalPrice, p?.price, p?.regularPrice, p?.listPrice, p?.amount, p?.unitPrice];
   for (const c of candidates) {
     const n = Number(c);
     if (Number.isFinite(n) && n > 0) return n;
   }
   return 0;
 }
+const refOf = (order) => order.orderNumber || String(order._id).slice(-6).toUpperCase();
 
 /* -------------------------------------------------------
  * Create Order (PayHere) + return PayHere payload
@@ -81,7 +74,7 @@ const createOrder = async (req, res) => {
       addressInfo.firstName = req.user?.name || req.user?.firstName || "Customer";
     }
 
-    // enums from schema
+    // enums
     const orderStatusEnum          = Order.schema.path("orderStatus")?.options?.enum || [];
     const orderPaymentStatusEnum   = Order.schema.path("paymentStatus")?.options?.enum || [];
     const paymentStatusEnumPayment = Payment.schema.path("paymentStatus")?.options?.enum || [];
@@ -90,18 +83,14 @@ const createOrder = async (req, res) => {
     const normOrderPay     = normalizeToEnum(paymentStatus ?? "PENDING", orderPaymentStatusEnum);
     const normPaymentModel = normalizeToEnum(paymentStatus ?? "PENDING", paymentStatusEnumPayment);
 
-    // ---- compute totals (prefer DB prices if client 0)
-    const ids = (cartItems || [])
-      .map((it) => String(it?.productId || ""))
-      .filter(Boolean);
-
+    // totals
+    const ids = (cartItems || []).map(it => String(it?.productId || "")).filter(Boolean);
     const dbProducts = ids.length
       ? await Product.find({ _id: { $in: ids } })
           .select("_id price salePrice finalPrice regularPrice listPrice amount unitPrice")
           .lean()
       : [];
-
-    const priceMap = new Map(dbProducts.map((p) => [String(p._id), pickDbUnitPrice(p)]));
+    const priceMap = new Map(dbProducts.map(p => [String(p._id), pickDbUnitPrice(p)]));
 
     const sanitizedCartItems = (cartItems || []).map((it) => {
       const pid = String(it?.productId || "");
@@ -110,13 +99,7 @@ const createOrder = async (req, res) => {
       const unit = clientU > 0 ? clientU : dbU;
       const qty  = Number(it?.quantity || 1);
       const lineTotal = Number.isFinite(unit * qty) ? Math.round(unit * qty * 100) / 100 : 0;
-      return {
-        ...it,
-        price: unit,
-        unitPrice: unit,
-        quantity: qty,
-        lineTotal,
-      };
+      return { ...it, price: unit, unitPrice: unit, quantity: qty, lineTotal };
     });
 
     let amountNum = sanitizedCartItems.reduce((s, r) => s + (r.lineTotal || 0), 0);
@@ -128,7 +111,7 @@ const createOrder = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid total amount" });
     }
 
-    // ---- create order (✅ store addressInfo!)
+    // create order
     const order = await Order.create({
       userId: userIdObj,
       cartId: cartId || "",
@@ -141,10 +124,10 @@ const createOrder = async (req, res) => {
       orderUpdateDate: orderUpdateDate || new Date(),
       paymentId: "",
       payerId: "",
-      addressInfo, // <-- important fix
+      addressInfo,
     });
 
-    // ---- create payment
+    // create payment row
     await Payment.create({
       orderId: order._id,
       userId: userIdObj,
@@ -155,7 +138,16 @@ const createOrder = async (req, res) => {
       currency: "LKR",
     });
 
-    // ---- PayHere payload
+    // 🔔 notify: ORDER PLACED
+    await notifyUser(
+      order.userId,
+      "ORDER",
+      `Order ${refOf(order)} placed`,
+      `We’ll update you when it ships.`,
+      { orderId: order._id, method: "payhere" }
+    );
+
+    // PayHere payload
     const orderIdStr = String(order._id);
     const amountStr  = amountNum.toFixed(2);
 
@@ -202,6 +194,8 @@ const createOrder = async (req, res) => {
 /* -------------------------------------------------------
  * PayHere IPN — enum-safe, signature optional
  * ------------------------------------------------------- */
+
+
 const handlePayHereNotify = async (req, res) => {
   try {
     const {
@@ -218,8 +212,10 @@ const handlePayHereNotify = async (req, res) => {
       card_holder_name,
     } = req.body;
 
+    const merchantSecret = process.env.PAYHERE_MERCHANT_SECRET;
     const skipVerify = String(process.env.PAYHERE_ALLOW_UNVERIFIED || "").toLowerCase() === "true";
     if (!skipVerify) {
+      const { verifyIPNSignature } = require("../../helpers/payhere");
       const okSig = verifyIPNSignature({
         merchantId: merchant_id,
         orderId: order_id,
@@ -232,30 +228,45 @@ const handlePayHereNotify = async (req, res) => {
       if (!okSig) return res.status(400).send("Invalid signature");
     }
 
+    const Order = require("../../models/Order");
+    const Payment = require("../../models/Payment");
+
     const order = await Order.findById(order_id);
     if (!order) return res.status(404).send("Order not found");
 
+    // map PayHere code -> logical status
     let logicalPayment = "PENDING";
     if (String(status_code) === "2")      logicalPayment = "PAID";
     else if (String(status_code) !== "0") logicalPayment = "FAILED";
 
-    const orderStatusEnum          = Order.schema.path("orderStatus")?.options?.enum || [];
+    // enum-safe
     const orderPaymentStatusEnum   = Order.schema.path("paymentStatus")?.options?.enum || [];
     const paymentStatusEnumPayment = Payment.schema.path("paymentStatus")?.options?.enum || [];
+    const toEnum = (want, list) => {
+      const s = String(want || "").toLowerCase();
+      const hit = (list || []).find(v => String(v).toLowerCase() === s);
+      return hit || (list?.[0] || want);
+    };
 
-    const normalizedOrderPaymentStatus = normalizeToEnum(logicalPayment, orderPaymentStatusEnum);
-    const normalizedPaymentModelStatus = normalizeToEnum(logicalPayment, paymentStatusEnumPayment);
+    const orderPaymentStatus = toEnum(logicalPayment, orderPaymentStatusEnum);
+    const paymentModelStatus = toEnum(logicalPayment, paymentStatusEnumPayment);
 
-    const logicalOrderStatusTarget =
-      logicalPayment === "PAID"   ? "CONFIRMED" :
-      logicalPayment === "FAILED" ? "CANCELLED" : order.orderStatus;
+    // choose next order status when paid
+    let nextOrderStatus = order.orderStatus;
+    if (logicalPayment === "PAID") {
+      // prefer CONFIRMED -> (or DELIVERED if your flow needs it)
+      const allowed = (Order.schema.path("orderStatus")?.options?.enum || []).map(s => String(s).toUpperCase());
+      if (allowed.includes("CONFIRMED")) nextOrderStatus = "CONFIRMED";
+      else if (allowed.length) nextOrderStatus = allowed[0];
+    } else if (logicalPayment === "FAILED") {
+      // optionally cancel
+      // if (allowed.includes("CANCELLED")) nextOrderStatus = "CANCELLED";
+    }
 
-    const normalizedOrderStatus = normalizeToEnum(logicalOrderStatusTarget, orderStatusEnum);
-
-    order.paymentStatus   = normalizedOrderPaymentStatus;
-    order.orderStatus     = normalizedOrderStatus;
-    order.paymentId       = payment_id || "";
-    order.payerId         = customer_token || "";
+    order.paymentStatus   = orderPaymentStatus;
+    order.orderStatus     = nextOrderStatus;
+    order.paymentId       = payment_id || order.paymentId || "";
+    order.payerId         = customer_token || order.payerId || "";
     order.orderUpdateDate = new Date();
     await order.save();
 
@@ -266,7 +277,7 @@ const handlePayHereNotify = async (req, res) => {
           userId: order.userId,
           provider: "payhere",
           paymentMethod: "payhere",
-          paymentStatus: normalizedPaymentModelStatus,
+          paymentStatus: paymentModelStatus,
           amount: Number(payhere_amount || order.totalAmount || 0),
           currency: payhere_currency || "LKR",
           providerPaymentId: payment_id || "",
@@ -279,6 +290,26 @@ const handlePayHereNotify = async (req, res) => {
       },
       { upsert: true, new: true }
     );
+
+    // 🔔 notifications based on result
+    const ref = order.orderNumber || String(order._id).slice(-6).toUpperCase();
+    if (logicalPayment === "PAID") {
+      await notifyUser(
+        order.userId,
+        "ORDER",
+        `Payment successful for Order ${ref}`,
+        `We received your payment (${Number(payhere_amount || order.totalAmount || 0)} ${payhere_currency || "LKR"}).`,
+        { orderId: order._id, paymentId: order.paymentId, gateway: "PayHere", orderStatus: order.orderStatus }
+      );
+    } else if (logicalPayment === "FAILED") {
+      await notifyUser(
+        order.userId,
+        "ORDER",
+        `Payment failed for Order ${ref}`,
+        `Please retry your payment.`,
+        { orderId: order._id, gateway: "PayHere", failed: true }
+      );
+    }
 
     return res.send("OK");
   } catch (e) {
@@ -407,7 +438,6 @@ const downloadInvoicePDF = async (req, res) => {
 /* -------------------------------------------------------
  * Create Order — Cash On Delivery
  * ------------------------------------------------------- */
-
 const createOrderCOD = async (req, res) => {
   try {
     const {
@@ -432,7 +462,7 @@ const createOrderCOD = async (req, res) => {
       addressInfo.firstName = req.user?.name || req.user?.firstName || "Customer";
     }
 
-    // compute/fallback total
+    // compute total
     let amountNum = Number(totalAmount);
     if (!(amountNum > 0)) {
       amountNum = (cartItems || []).reduce((sum, it) => {
@@ -446,7 +476,7 @@ const createOrderCOD = async (req, res) => {
       }
     }
 
-    // 🔑 normalize to model enums (case-insensitive)
+    // enums
     const orderStatusEnum        = Order.schema.path("orderStatus")?.options?.enum || [];
     const orderPaymentStatusEnum = Order.schema.path("paymentStatus")?.options?.enum || [];
     const paymentModelEnum       = (Payment.schema.path("paymentStatus")?.options?.enum) || [];
@@ -459,15 +489,15 @@ const createOrderCOD = async (req, res) => {
       userId: new mongoose.Types.ObjectId(u),
       cartId: cartId || "",
       cartItems,
-      orderStatus: normOrderStatus,          // e.g. "PENDING"
+      orderStatus: normOrderStatus,
       paymentMethod: "cod",
-      paymentStatus: normOrderPay,           // e.g. "pending" if that’s your enum
+      paymentStatus: normOrderPay,
       totalAmount: amountNum,
       orderDate: orderDate || new Date(),
       orderUpdateDate: orderUpdateDate || new Date(),
       paymentId: "",
       payerId: "",
-      addressInfo,                           // keep address on order
+      addressInfo,
     });
 
     await Payment.create({
@@ -475,10 +505,19 @@ const createOrderCOD = async (req, res) => {
       userId: order.userId,
       provider: "cod",
       paymentMethod: "cod",
-      paymentStatus: normPaymentModel,       // match Payment model’s enum/case
+      paymentStatus: normPaymentModel,
       amount: amountNum,
       currency: "LKR",
     });
+
+    // 🔔 notify: ORDER PLACED (COD)
+    await notifyUser(
+      order.userId,
+      "ORDER",
+      `Order ${refOf(order)} placed`,
+      `Cash on delivery selected. Total ${order.totalAmount} LKR.`,
+      { orderId: order._id, method: "COD" }
+    );
 
     return res.status(200).json({
       success: true,

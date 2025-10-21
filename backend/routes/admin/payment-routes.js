@@ -1,54 +1,62 @@
 // backend/routes/admin/payment-routes.js
-const express = require("express");
-const router = express.Router();
-
+const router = require("express").Router();
 const ctrl = require("../../controllers/admin/payment-controller");
-const {
-  // existing handlers (keep)
-  getAllPayments,
-  exportPaymentsPDF,
-  findOrderByPaymentId,
-  updatePaymentStatus,   
-  deletePayment, 
-  markCodCollected,
-  markOrderPending,
-  markOrderFailed,
-  markOrderPaid,    
-  listPaymentOrders,
+const { authMiddleware } = require("../../controllers/auth/auth-controller");
 
-  getPaymentSummary,
+// --- tiny admin gate (adjust roles if needed)
+function requireAdmin(req, res, next) {
+  const role = String(req.user?.role || "").toLowerCase();
+  if (role !== "admin") {
+    return res.status(403).json({ success: false, message: "Forbidden" });
+  }
+  next();
+}
 
-} = require("../../controllers/admin/payment-controller");
-const { authMiddleware, adminOnly } = require("../../controllers/auth/auth-controller");
+// protect everything under /api/admin/payments
+router.use(authMiddleware, requireAdmin);
 
-/* ---------- Existing: List + search + export ---------- */
-router.get("/", getAllPayments);
-router.get("/export/pdf", exportPaymentsPDF);
-router.get("/find", findOrderByPaymentId); // ?paymentId=PH123...
+// helper: attach route only if controller fn exists
+function attach(method, path, fnName) {
+  const fn = ctrl && ctrl[fnName];
+  if (typeof fn === "function") {
+    router[method](path, fn);
+  } else {
+    console.error(`[admin/payments] Missing controller fn: ${fnName} -> ${method.toUpperCase()} ${path}`);
+    router[method](path, (_req, res) =>
+      res.status(501).json({ success: false, message: `Not implemented: ${fnName}` })
+    );
+  }
+}
 
-/* ---------- Existing: Mutations ---------- */
-// router.patch("/:id", updatePaymentStatus);
-router.put("/update-status", updatePaymentStatus); // body: { paymentStatus, [orderStatus], [paymentId] }
-router.delete("/:id", deletePayment);
+/* ------------------- Routes ------------------- */
 
-/* ---------- Added: Orders-focused payment views ---------- */
-// GET /api/admin/payments/orders?status=PENDING&method=payhere&q=abc&page=1&limit=20&from=YYYY-MM-DD&to=YYYY-MM-DD
-router.get("/orders", listPaymentOrders);
+// List payments (orders with payment fields)
+attach("get", "/", "getAllPayments");
 
-// PATCH /api/admin/payments/orders/:id/mark-paid
-// router.patch("/orders/:id/mark-paid", markOrderPaid);
+// PDF export
+attach("get", "/export/pdf", "exportPaymentsPDF");
 
-// GET /api/admin/payments/summary
-router.get("/summary", getPaymentSummary);
+// Find order by gateway payment id (?paymentId=PH123)
+attach("get", "/find", "findOrderByPaymentId");
 
-router.patch(
-  "/orders/:id/cod-collected",
-  authMiddleware,
-  adminOnly,
-  ctrl.markCODCollected
-);
+// Summary (by status/method)
+attach("get", "/summary", "getPaymentSummary");
 
-router.patch("/orders/:id/mark-paid",    authMiddleware, adminOnly, markOrderPaid);
-router.patch("/orders/:id/mark-pending", authMiddleware, adminOnly, markOrderPending);
-router.patch("/orders/:id/mark-failed",  authMiddleware, adminOnly, markOrderFailed);
+// Admin list orders with filters/pagination
+attach("get", "/orders", "listPaymentOrders");
+
+// Update a payment/order status (generic) expects body { paymentId, status }
+attach("patch", "/:id", "updatePaymentStatus");
+
+// Mark specific order statuses
+attach("patch", "/orders/:id/mark-paid", "markOrderPaid");
+attach("patch", "/orders/:id/mark-pending", "markOrderPending");
+attach("patch", "/orders/:id/mark-failed", "markOrderFailed");
+
+// COD collected by admin/delivery
+attach("patch", "/orders/:id/cod-collected", "markCODCollected");
+
+// Delete an order & its Payment row
+attach("delete", "/:id", "deletePayment");
+
 module.exports = router;

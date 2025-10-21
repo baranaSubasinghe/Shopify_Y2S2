@@ -23,6 +23,7 @@ import UserCartWrapper from "./cart-wrapper";
 import { useEffect, useState } from "react";
 import { fetchCartItems } from "@/store/shop/cart-slice";
 import { Label } from "../ui/label"; 
+import NotificationBellUser from "@/components/shopping-view/notification-bell-user";
 
 
 
@@ -101,6 +102,7 @@ function HeaderRightContent() {
           </span>
           <span className="sr-only">User cart</span>
         </Button>
+         <NotificationBellUser />
         <UserCartWrapper
           setOpenCartSheet={setOpenCartSheet}
           cartItems={
