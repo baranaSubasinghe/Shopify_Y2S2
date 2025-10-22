@@ -22,6 +22,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { useSearchParams } from "react-router-dom";
 import axios from "axios";
 import { toast } from "sonner";
+import ShopFooter from "@/components/shopping-view/footer";
 
 /* ----------------------------- fuzzy helpers ----------------------------- */
 const norm = (s = "") =>
@@ -30,7 +31,8 @@ const norm = (s = "") =>
 function levenshtein(a = "", b = "") {
   a = norm(a);
   b = norm(b);
-  const m = a.length, n = b.length;
+  const m = a.length,
+    n = b.length;
   if (!m) return n;
   if (!n) return m;
   const dp = Array.from({ length: m + 1 }, (_, i) => [i]);
@@ -213,7 +215,7 @@ function ShoppingListing() {
 
     window.addEventListener("voice-add-to-cart", onVoiceAdd);
     return () => window.removeEventListener("voice-add-to-cart", onVoiceAdd);
-  }, [productList, cartItems, isAuthenticated, user]); // deps safe for your logic
+  }, [productList, cartItems, isAuthenticated, user]);
 
   useEffect(() => {
     setSort("price-lowtohigh");
@@ -239,8 +241,15 @@ function ShoppingListing() {
   }, [productDetails]);
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-6 p-4 md:p-6">
-      <ProductFilter filters={filters} handleFilter={handleFilter} />
+    <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6 p-4 md:p-6">
+      {/* LEFT: Filter column in light grey card (sticky) */}
+      <aside className="self-start">
+        <div className="rounded-lg border border-border bg-gray-50 dark:bg-white/5 p-4 sticky top-24">
+          <ProductFilter filters={filters} handleFilter={handleFilter} />
+        </div>
+      </aside>
+
+      {/* RIGHT: Products card */}
       <div className="bg-background w-full rounded-lg shadow-sm">
         <div className="p-4 border-b flex items-center justify-between">
           <h2 className="text-lg font-extrabold">All Products</h2>
@@ -288,6 +297,11 @@ function ShoppingListing() {
               ))
             : null}
         </div>
+      </div>
+
+      {/* Footer spans full width */}
+      <div className="md:col-span-2">
+        <ShopFooter />
       </div>
 
       <ProductDetailsDialog
