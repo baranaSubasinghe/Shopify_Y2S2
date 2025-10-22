@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import ShopFooter from "@/components/shopping-view/footer";
 //import bannerOne from "../../assets/banner-1.webp";
 //import bannerTwo from "../../assets/banner-2.webp";
 //import bannerThree from "../../assets/banner-3.webp";
@@ -240,12 +241,18 @@ useEffect(() => {
           </div>
         </div>
       </section>
+    <div className="p-4 md:p-6 mt-6">
+  <ShopFooter />
+</div>
+      
       <ProductDetailsDialog
         open={openDetailsDialog}
         setOpen={setOpenDetailsDialog}
         productDetails={productDetails}
       />
+    
     </div>
+    
   );
 }
 
