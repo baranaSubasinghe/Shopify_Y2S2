@@ -118,7 +118,7 @@ app.use("/api/shop/notifications", shopUserNotifRouter);
 
 app.use("/api/common/feature",       commonFeatureRouter);
 app.use("/api/delivery/orders",      deliveryOrdersRouter);
-app.use("/api/ai",                   aiRouter);
+app.use("/api/common", aiRouter);
 
 /* -------- 404 for /api -------- */
 app.use((req, res, next) => {

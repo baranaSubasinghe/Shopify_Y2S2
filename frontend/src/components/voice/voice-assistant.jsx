@@ -147,104 +147,110 @@ export default function VoiceAssistant() {
     hideTimer.current = setTimeout(() => setHeard(""), 2500);
   };
 
-  const handleCommand = (raw) => {
-    const phrase = raw.toLowerCase().trim();
-    // allow "hey voice ..." prefix
-    const cleaned = phrase.replace(/^hey\s+voice\s+/, "");
-    const p = cleaned.length ? cleaned : phrase;
+  const handleCommand = async (raw) => {
+  const phrase = raw.toLowerCase().trim();
+  const cleaned = phrase.replace(/^hey\s+voice\s+/, "");
+  const p = cleaned.length ? cleaned : phrase;
 
-    const go = (path) => nav(path);
-    const emit = (name, detail) =>
-      window.dispatchEvent(new CustomEvent(name, { detail }));
+  const go = (path) => nav(path);
+  const emit = (name, detail) =>
+    window.dispatchEvent(new CustomEvent(name, { detail }));
 
-    // navigation
-    if (/(go|open)\s+home\b/.test(p)) return go("/shop/home");
-    if (/(go|open|show)\s+(products|product list)/.test(p))
-      return go("/shop/listing");
-    if (/(open|show).*(cart|bag)/.test(p)) return emit("open-cart");
-    if (/(open|show).*(account|profile)/.test(p)) return go("/shop/account");
+  // === NAVIGATION ===
+  if (/(go|open)\s+home\b/.test(p)) return go("/shop/home");
+  if (/(go|open|show)\s+(products|product list)/.test(p))
+    return go("/shop/listing");
+  if (/(open|show).*(cart|bag)/.test(p)) return emit("open-cart");
+  if (/(open|show).*(account|profile)/.test(p)) return go("/shop/account");
 
-    // browser basics
-    if (/^back$/.test(p)) return window.history.back();
-    if (/^forward$/.test(p)) return window.history.forward();
-    if (/^refresh$|^reload$/.test(p)) return window.location.reload();
+  if (/^back$/.test(p)) return window.history.back();
+  if (/^forward$/.test(p)) return window.history.forward();
+  if (/^refresh$|^reload$/.test(p)) return window.location.reload();
 
-    // stop listening
-    if (/stop (listening|voice)/.test(p)) {
-      try { recRef.current?.stop(); } catch {}
-      setActive(false);
-      setWake(false);
+  if (/stop (listening|voice)/.test(p)) {
+    try { recRef.current?.stop(); } catch {}
+    setActive(false);
+    setWake(false);
+    return;
+  }
+
+  // === BUILT-IN SEARCH (“search for …”) ===
+  const mSearch = p.match(/(?:search|find|look up)\s+(?:for\s+)?(.+)/);
+  if (mSearch?.[1]) {
+    const q = mSearch[1].trim();
+    if (q) {
+      await sendToAI(q);
       return;
     }
+  }
 
-    // search
-    const mSearch = p.match(/(?:search|find|look up)\s+(?:for\s+)?(.+)/);
-    if (mSearch?.[1]) {
-      const q = mSearch[1].trim();
-      if (q) go(`/shop/search?q=${encodeURIComponent(q)}`);
+  // === CATEGORIES ===
+  const mCat = p.match(/(?:show|open)\s+(?:category\s+)?(men|women|kids|footwear|accessories)\b/);
+  if (mCat?.[1]) return go(`/shop/listing?category=${encodeURIComponent(mCat[1])}`);
+
+  // === CHECKOUT / PAYMENT / LOGOUT ===
+  if (/^(checkout|go to checkout|proceed to checkout)$/.test(p)) {
+    go("/shop/checkout");
+    emit("voice-checkout", { method: null });
+    return;
+  }
+  if (/(payhere|pay here|card|online payment)/.test(p)) {
+    go("/shop/checkout");
+    emit("voice-checkout", { method: "payhere" });
+    toast.success("Payment method set to PayHere");
+    return;
+  }
+  if (/(cash on delivery|cod|cash)/.test(p)) {
+    go("/shop/checkout");
+    emit("voice-checkout", { method: "cod" });
+    toast.success("Payment method set to Cash on Delivery");
+    return;
+  }
+  if (/^(place order|confirm order|complete order|pay now)$/.test(p)) {
+    emit("voice-place-order");
+    toast.message("Placing order…");
+    return;
+  }
+  if (/^(logout|log out|sign out)$/.test(p)) {
+    dispatch(logoutUser());
+    toast.success("Logged out");
+    go("/auth/login");
+    return;
+  }
+
+  // === ADD TO CART ===
+  const mAdd = p.match(/^add(?:\s+(\d+))?\s+(.+?)(?:\s+to cart)?$/);
+  if (mAdd) {
+    const qty = Number(mAdd[1] || 1);
+    const name = (mAdd[2] || "").trim();
+    if (name) {
+      emit("voice-add-to-cart", { name, qty: Math.max(1, qty) });
+      toast.success(`Trying to add ${Math.max(1, qty)} × ${name}`);
       return;
     }
+  }
 
-    // category
-    const mCat = p.match(
-      /(?:show|open)\s+(?:category\s+)?(men|women|kids|footwear|accessories)\b/
-    );
-    if (mCat?.[1]) {
-      const cat = mCat[1];
-      go(`/shop/listing?category=${encodeURIComponent(cat)}`);
-      return;
+  // === NEW: AI RECOMMENDER (fallback for unrecognized search sentences) ===
+  try {
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/api/common/ai-recommend`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: p }),
+    });
+    const data = await res.json();
+    if (data.success && data.items?.length) {
+      toast.success(data.summary || "Here are your results!");
+      // Option A: Show simple list
+      console.log("AI results:", data.items);
+      // Option B: redirect to your product listing
+      go(`/shop/listing?q=${encodeURIComponent(p)}`);
+    } else {
+      toast.message(`No products found for "${p}"`);
     }
-
-    // checkout entry
-    if (/^(checkout|go to checkout|proceed to checkout)$/.test(p)) {
-      go("/shop/checkout");
-      emit("voice-checkout", { method: null });
-      return;
-    }
-
-    // choose payment
-    if (/(payhere|pay here|card|online payment)/.test(p)) {
-      go("/shop/checkout");
-      emit("voice-checkout", { method: "payhere" });
-      toast.success("Payment method set to PayHere");
-      return;
-    }
-    if (/(cash on delivery|cod|cash)/.test(p)) {
-      go("/shop/checkout");
-      emit("voice-checkout", { method: "cod" });
-      toast.success("Payment method set to Cash on Delivery");
-      return;
-    }
-
-    // place order
-    if (/^(place order|confirm order|complete order|pay now)$/.test(p)) {
-      emit("voice-place-order");
-      toast.message("Placing order…");
-      return;
-    }
-
-    // logout
-    if (/^(logout|log out|sign out)$/.test(p)) {
-      dispatch(logoutUser());
-      toast.success("Logged out");
-      go("/auth/login");
-      return;
-    }
-
-    // add-to-cart heuristic: "add 2 black t shirt (to cart)" OR "add black t shirt"
-    const mAdd = p.match(/^add(?:\s+(\d+))?\s+(.+?)(?:\s+to cart)?$/);
-    if (mAdd) {
-      const qty = Number(mAdd[1] || 1);
-      const name = (mAdd[2] || "").trim();
-      if (name) {
-        emit("voice-add-to-cart", { name, qty: Math.max(1, qty) });
-        toast.success(`Trying to add ${Math.max(1, qty)} × ${name}`);
-        return;
-      }
-    }
-
-    toast.info(`Heard: "${raw}"`);
-  };
+  } catch (err) {
+    toast.error("AI search failed");
+  }
+};
 
   const toggleListenOnce = () => {
     if (!hasSpeech()) {

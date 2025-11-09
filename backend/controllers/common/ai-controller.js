@@ -1,37 +1,43 @@
-// backend/controllers/common/ai-controller.js
+/**
+ * AI + Voice Recommendation Controller
+ * Shopify_Y2S2 Final – Optimized Version
+ */
 const Product = require("../../models/Product");
 
+/* -------------------- Initialize OpenAI -------------------- */
 let openaiClient = null;
 try {
   const OpenAI = require("openai");
   if (process.env.OPENAI_API_KEY) {
     openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    console.log("[AI] ✅ OpenAI initialized");
+  } else {
+    console.log("[AI] ⚠️ No OpenAI key – running in local (rule-based) mode");
   }
-} catch (_) {}
+} catch (err) {
+  console.warn("[AI] ⚠️ OpenAI not loaded:", err.message);
+}
 
-/* -------------------------- Config -------------------------- */
+/* -------------------- Configuration -------------------- */
 const GPT = process.env.AI_RECOMMENDATIONS_MODEL || "gpt-4o-mini";
 
-/** Light synonyms so “sneakers” ~ “shoes”, “tee” ~ “t-shirt”, etc. */
+/** Light synonyms for fallback local parsing */
 const SYNONYMS = {
-  // categories
   sneaker: ["sneaker", "sneakers", "trainer", "trainers"],
   shoes: ["shoe", "shoes", "formal", "loafers"],
-  tshirt: ["t shirt", "t-shirt", "tee", "tees"],
+  tshirt: ["t shirt", "t-shirt", "tee", "tees", "tshirts"],
   hoodie: ["hoodie", "hoodies", "hooded"],
-  dress: ["dress", "gown", "frock"],
+  dress: ["dress", "dresses", "gown", "frock"],
   jeans: ["jeans", "denim", "denims", "denim jeans"],
-  denim: ["denim", "denims", "jeans"], // all lowercase
-  jacket: ["jacket", "coat", "outerwear"],
-  watch: ["watch", "wristwatch"],
-  bag: ["bag", "handbag", "tote", "backpack"],
+  denim: ["denim", "denims", "jeans"],
+  jacket: ["jacket", "jackets", "coat", "outerwear"],
+  watch: ["watch", "watches", "wristwatch"],
+  bag: ["bag", "bags", "handbag", "tote", "backpack"],
   saree: ["saree", "sari"],
-
   // audience
   men: ["men", "male", "man", "mens", "gents"],
   women: ["women", "woman", "female", "ladies"],
   kids: ["kids", "kid", "child", "children", "boys", "girls"],
-
   // colors
   red: ["red", "maroon", "crimson", "scarlet"],
   blue: ["blue", "navy", "azure", "sky"],
@@ -44,15 +50,13 @@ const SYNONYMS = {
   brown: ["brown", "tan", "beige", "khaki"],
 };
 
-/* Build reverse map: term -> canonical (normalized) */
 const CANON = {};
-for (const k of Object.keys(SYNONYMS)) {
+for (const k of Object.keys(SYNONYMS))
   for (const t of SYNONYMS[k]) CANON[normalize(t)] = k;
-}
 
-/* -------------------------- Helpers -------------------------- */
+/* -------------------- Utility Helpers -------------------- */
 function normalize(str = "") {
-  return String(str || "")
+  return String(str)
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\s+/g, " ")
@@ -69,18 +73,15 @@ function extractPriceRange(message) {
   const kMatches = [...m.matchAll(/(\d+)\s*k\b/g)].map((x) => Number(x[1]) * 1000);
   const all = [...nums, ...kMatches].sort((a, b) => a - b);
 
-  let minPrice = 0, maxPrice = 9999999;
-  if (/under|below|less than/.test(m) && all.length) {
-    maxPrice = all[all.length - 1];
-  } else if (/between|from/.test(m) && all.length >= 2) {
-    minPrice = all[0];
-    maxPrice = all[all.length - 1];
-  } else if (/above|over|more than/.test(m) && all.length) {
-    minPrice = all[0];
-  }
+  let minPrice = 0,
+    maxPrice = 9999999;
+  if (/under|below|less than/.test(m) && all.length) maxPrice = all.at(-1);
+  else if (/between|from/.test(m) && all.length >= 2) [minPrice, maxPrice] = [all[0], all.at(-1)];
+  else if (/above|over|more than/.test(m) && all.length) minPrice = all[0];
   return { minPrice, maxPrice };
 }
 
+/** Local fallback parser using synonyms */
 function extractCanonTerms(message) {
   const m = normalize(message);
   const words = m.split(/\s+/);
@@ -91,9 +92,15 @@ function extractCanonTerms(message) {
 
   for (const w of words) {
     const key = CANON[w];
-    if (!key) { leftover.push(w); continue; }
+    if (!key) {
+      leftover.push(w);
+      continue;
+    }
     if (["men", "women", "kids"].includes(key)) audiences.add(key);
-    else if (SYNONYMS[key] && ["red","blue","black","white","green","pink","purple","grey","brown"].includes(key)) colors.add(key);
+    else if (
+      ["red", "blue", "black", "white", "green", "pink", "purple", "grey", "brown"].includes(key)
+    )
+      colors.add(key);
     else cats.add(key);
   }
 
@@ -103,56 +110,48 @@ function extractCanonTerms(message) {
     categories: [...cats],
     colors: [...colors],
     audiences: [...audiences],
-    keywords,
+    q: keywords,
   };
 }
 
+/** Regex builder for keyword search */
 function buildRegexFromWords(q) {
   if (!q) return null;
   const words = q.split(/\s+/).filter(Boolean);
-  if (!words.length) return null;
   const pattern = words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
   return new RegExp(pattern, "i");
 }
 
+/** Simple heuristic score */
 function scoreItem(p, filters) {
-  // composite score: text match + price fit + rating + recency
   let s = 0;
-
   const title = normalize(p.title || p.name || "");
-  const desc  = normalize(p.description || "");
+  const desc = normalize(p.description || "");
   const q = normalize(filters.q || "");
 
   if (q) {
     const words = new Set(q.split(/\s+/));
     for (const w of words) {
       if (title.includes(w)) s += 2;
-      if (desc.includes(w))  s += 1;
+      if (desc.includes(w)) s += 1;
     }
   }
 
-  // color/category boosts
-  if (filters.colors?.length) {
-    const text = `${title} ${desc}`;
-    for (const c of filters.colors) if (text.includes(c)) s += 1.5;
-  }
+  if (filters.colors?.length)
+    for (const c of filters.colors)
+      if (`${title} ${desc}`.includes(c)) s += 1.5;
+
   if (filters.categories?.length) {
     const cat = normalize(p.category || p.categories?.[0] || p.type || "");
     for (const c of filters.categories) if (cat.includes(c)) s += 2;
   }
 
-  // price proximity
-  const price = (typeof p.salePrice === "number" ? p.salePrice : undefined) ?? p.price ?? 0;
-  if (price && filters.minPrice >= 0 && filters.maxPrice) {
-    if (price >= filters.minPrice && price <= filters.maxPrice) {
-      const mid = (filters.minPrice + filters.maxPrice) / 2;
-      const delta = Math.max(1, Math.abs(price - mid));
-      s += 4 / Math.log10(delta + 10);
-    }
-  }
+  const price =
+    (typeof p.salePrice === "number" ? p.salePrice : undefined) ?? p.price ?? 0;
+  if (price && filters.minPrice >= 0 && filters.maxPrice)
+    if (price >= filters.minPrice && price <= filters.maxPrice) s += 2;
 
   if (typeof p.rating === "number") s += Math.min(3, p.rating / 2);
-
   if (p.createdAt) {
     const days = (Date.now() - new Date(p.createdAt).getTime()) / 86400000;
     if (days < 7) s += 1;
@@ -162,235 +161,124 @@ function scoreItem(p, filters) {
   return s;
 }
 
-/* ------------------------- LLM helpers ------------------------- */
+/* -------------------- AI-assisted helpers -------------------- */
 async function extractFiltersLLM(message) {
-  const sys = `Extract an e-commerce query into filters. Return strict JSON:
-{
-  "q": "string keywords",
-  "minPrice": number,
-  "maxPrice": number,
-  "colors": ["color"],
-  "categories": ["category"],
-  "audiences": ["men"|"women"|"kids"]
-}`;
+  const sys = `Extract an e-commerce query into JSON:
+{"q":"","minPrice":0,"maxPrice":9999999,"colors":[],"categories":[],"audiences":[]}`;
   const resp = await openaiClient.chat.completions.create({
     model: GPT,
     messages: [
       { role: "system", content: sys },
-      { role: "user", content: message }
+      { role: "user", content: message },
     ],
     response_format: { type: "json_object" },
   });
   return JSON.parse(resp.choices[0].message.content || "{}");
 }
 
-async function rerankLLM(message, candidates) {
-  const prompt = `User query: "${message}"
-You are given products as JSON objects with "title", "description", and "price".
-Return the indices (0-based) of the best 6 products in descending order of relevance as a JSON array, property "order".
-Do not add commentary.`;
-
-  const content = JSON.stringify(candidates.map(c => ({
-    title: c.title || c.name,
-    description: c.description || "",
-    price: c.salePrice ?? c.price,
-    category: c.category || c.categories?.[0] || c.type || "",
-  })));
-
-  const resp = await openaiClient.chat.completions.create({
-    model: GPT,
-    messages: [
-      { role: "system", content: prompt },
-      { role: "user", content: content }
-    ],
-    response_format: { type: "json_object" },
-  });
-
-  const parsed = JSON.parse(resp.choices[0].message.content || "{}");
-  const order = Array.isArray(parsed.order) ? parsed.order : [];
-  return order.filter((i) => Number.isInteger(i) && i >= 0 && i < candidates.length);
-}
-
-/* --------------------------- Controller --------------------------- */
-/**
- * POST /api/ai/recommend  { message, limit? }
- */
+/* -------------------- Main Controller -------------------- */
 async function aiRecommend(req, res) {
   try {
     const { message, limit = 6 } = req.body || {};
-    if (!message) return res.status(400).json({ success:false, message:"message is required" });
+    if (!message)
+      return res.status(400).json({ success: false, message: "message is required" });
 
-    // 1) Parse filters
-    let filters = { q:"", minPrice:0, maxPrice:9999999, colors:[], categories:[], audiences:[] };
+    // Step 1: Extract filters (AI → fallback)
+    let filters = { q: "", minPrice: 0, maxPrice: 9999999, colors: [], categories: [], audiences: [] };
 
     if (openaiClient) {
       try {
         const f = await extractFiltersLLM(message);
-        filters.q = (f.q || "").trim();
-        filters.minPrice = Number.isFinite(f.minPrice) ? f.minPrice : 0;
-        filters.maxPrice = Number.isFinite(f.maxPrice) ? f.maxPrice : 9999999;
-        filters.colors = Array.isArray(f.colors) ? f.colors.map(normalize) : [];
-        filters.categories = Array.isArray(f.categories) ? f.categories.map(normalize) : [];
-        filters.audiences = Array.isArray(f.audiences) ? f.audiences.map(normalize) : [];
-      } catch (e) {
+        filters = {
+          q: (f.q || "").trim(),
+          minPrice: f.minPrice || 0,
+          maxPrice: f.maxPrice || 9999999,
+          colors: (f.colors || []).map(normalize),
+          categories: (f.categories || []).map(normalize),
+          audiences: (f.audiences || []).map(normalize),
+        };
+      } catch (err) {
+        console.warn("[AI] LLM parsing failed → fallback:", err.message);
         const { minPrice, maxPrice } = extractPriceRange(message);
-        const locals = extractCanonTerms(message);
-        filters = { ...filters, ...locals, minPrice, maxPrice };
+        filters = { ...filters, ...extractCanonTerms(message), minPrice, maxPrice };
       }
     } else {
       const { minPrice, maxPrice } = extractPriceRange(message);
-      const locals = extractCanonTerms(message);
-      filters = { ...filters, ...locals, minPrice, maxPrice };
+      filters = { ...filters, ...extractCanonTerms(message), minPrice, maxPrice };
     }
 
-    // 2) Build precise Mongo filters
+    // Step 2: Build Mongo filters
     const q = { isDeleted: { $ne: true } };
+    const and = [];
 
-    // Keyword regex across title/name/description
     const rx = buildRegexFromWords(filters.q);
-    if (rx) {
+    if (rx)
       q.$or = [
         { title: { $regex: rx, $options: "i" } },
         { name: { $regex: rx, $options: "i" } },
         { description: { $regex: rx, $options: "i" } },
       ];
+
+    if (filters.categories?.length) {
+      const allTerms = filters.categories.flatMap((cat) => SYNONYMS[cat] || [cat]);
+      const catRx = new RegExp(allTerms.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "i");
+      and.push({ $or: [{ category: catRx }, { description: catRx }, { title: catRx }] });
     }
-
-    const and = [];
-
-    // Category: match category fields OR text synonyms in title/description
-    if (Array.isArray(filters.categories) && filters.categories.length) {
-      const categoryOrs = [];
-
-      categoryOrs.push({
-        $or: [
-          { category: { $in: filters.categories } },
-          { categories: { $in: filters.categories } },
-          { type: { $in: filters.categories } },
-        ],
-      });
-
-      const synonymTerms = [];
-      for (const cat of filters.categories) {
-        const terms = (SYNONYMS?.[cat] || [cat]).map(normalize);
-        synonymTerms.push(...terms);
-      }
-      const uniq = Array.from(new Set(synonymTerms)).filter(Boolean);
-      if (uniq.length) {
-        const pattern =
-          "\\b(" + uniq.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\b";
-        const catRx = new RegExp(pattern, "i");
-        categoryOrs.push({ title: { $regex: catRx } }, { description: { $regex: catRx } });
-      }
-
-      and.push({ $or: categoryOrs });
-    }
-
-    // Color exact match
-    if (Array.isArray(filters.colors) && filters.colors.length) {
-      and.push({ color: { $in: filters.colors } });
-    }
-
-    // Gender / audience strict match
-    if (Array.isArray(filters.audiences) && filters.audiences.length) {
-      const genderClauses = filters.audiences.map((aud) => {
-        const b = new RegExp(`\\b${aud}\\b`, "i");
-        return {
+    if (filters.colors?.length) and.push({ color: { $in: filters.colors } });
+    if (filters.audiences?.length)
+      and.push({
+        $or: filters.audiences.map((aud) => ({
           $or: [
             { gender: aud },
             { audience: aud },
             { tags: aud },
-            { title: b },
-            { description: b },
+            { title: new RegExp(aud, "i") },
+            { description: new RegExp(aud, "i") },
           ],
-        };
+        })),
       });
-      and.push({ $or: genderClauses });
-    }
-
     if (and.length) q.$and = and;
 
-    // 3) Pull a generous candidate set
-    let raw = await Product.find(q)
-      .select("title name description images image price salePrice category categories type color gender tags rating createdAt")
-      .sort({ rating: -1, createdAt: -1 })
+    // Step 3: Query products
+    let products = await Product.find(q)
+      .select("title name description price salePrice category color gender tags rating createdAt images image")
       .limit(120)
       .lean();
 
-    // Deduplicate by _id/title
-    const seen = new Set();
-    raw = raw.filter((p) => {
-      const key = p._id?.toString() || p.title?.toLowerCase();
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
-      return true;
+    // Filter by price range
+    products = products.filter((p) => {
+      const price = p.salePrice ?? p.price ?? 0;
+      return price >= filters.minPrice && price <= filters.maxPrice;
     });
 
-    // 4) Strict price filter
-    const priceFiltered = raw.filter((p) => {
-      const price =
-        typeof p.salePrice === "number" && p.salePrice > 0
-          ? p.salePrice
-          : typeof p.price === "number"
-          ? p.price
-          : null;
+    // Step 4: Score & sort
+    const scored = products.map((p) => ({ ...p, _score: scoreItem(p, filters) }));
+    scored.sort((a, b) => b._score - a._score);
 
-      if (price == null) return false;
-      if (filters.minPrice && price < filters.minPrice) return false;
-      if (filters.maxPrice && price > filters.maxPrice) return false;
-      return true;
-    });
+    // Step 5: Slice final
+    const finalItems = scored.slice(0, Math.min(Number(limit) || 6, 12));
 
-    // 5) Local scoring
-    const withScore = priceFiltered.map((p) => ({ ...p, _score: scoreItem(p, filters) }));
-
-    // Gender penalty (outside of scoreItem; safe scope)
-    if (Array.isArray(filters.audiences) && filters.audiences.length) {
-      for (const item of withScore) {
-        const text = `${item.title || ""} ${item.description || ""}`.toLowerCase();
-        const isMen = /men|gents|male/.test(text);
-        const isWomen = /women|ladies|female/.test(text);
-        if (filters.audiences.includes("men") && isWomen) item._score -= 3;
-        if (filters.audiences.includes("women") && isMen) item._score -= 3;
-      }
-    }
-
-    withScore.sort((a, b) => b._score - a._score);
-
-    // 6) Optional LLM re-rank
-    let finalItems = withScore;
-    if (openaiClient && withScore.length > 6) {
-      const top = withScore.slice(0, 24);
-      try {
-        const order = await rerankLLM(message, top);
-        const ordered = order.map((i) => top[i]).filter(Boolean);
-        finalItems = [...ordered, ...top.filter((x) => !ordered.includes(x))];
-      } catch (_) {
-        finalItems = withScore;
-      }
-    }
-
-    finalItems = finalItems.slice(0, Math.min(Number(limit) || 6, 12));
-
-    // 7) Tiny explanation
+    // Step 6: Optional AI summary
     let summary = "";
-    if (openaiClient) {
+    if (openaiClient && finalItems.length) {
       try {
         const explain = await openaiClient.chat.completions.create({
           model: GPT,
           messages: [
-            { role: "system", content: "Explain in 1 sentence why these items match. Be concise." },
-            { role: "user", content: `Query: ${message}\nItems: ${finalItems.map(i=>`${i.title || i.name} - ${(i.salePrice ?? i.price)}`).join(", ")}` }
-          ]
+            { role: "system", content: "Explain in 1 short sentence why these products match the query." },
+            { role: "user", content: `Query: ${message}\nProducts: ${finalItems.map(i => i.title).join(", ")}` },
+          ],
         });
-        summary = explain.choices[0].message.content?.trim() || "";
-      } catch(_) {}
+        summary = explain.choices?.[0]?.message?.content?.trim() || "";
+      } catch (err) {
+        console.warn("[AI] summary failed:", err.message);
+      }
     }
 
-    return res.json({ success:true, filters, items: finalItems, summary });
+    return res.json({ success: true, filters, items: finalItems, summary });
   } catch (err) {
-    console.error("[ai] recommend error:", err);
-    return res.status(500).json({ success:false, message:"Server error" });
+    console.error("[AI] recommend error:", err);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 }
 

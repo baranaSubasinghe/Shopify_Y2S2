@@ -100,7 +100,7 @@ const logoutUser = (req, res) => {
   });
 };
 
-
+//forget password
 const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
@@ -146,8 +146,7 @@ console.log("[forgot] saved token:", user.resetPasswordToken, "exp:", user.reset
   }
 };
 
-
-// POST /api/auth/reset-password  { email, token, password }
+//reset password
 const resetPassword = async (req, res) => {
   try {
     const { email, token, password } = req.body || {};
@@ -158,7 +157,6 @@ const resetPassword = async (req, res) => {
       return res.status(400).json({ success:false, message:"Password must be at least 8 characters" });
     }
 
-    // single query: email match + token match + not expired
     const user = await User.findOne({
       email: email.toLowerCase(),
       resetPasswordToken: token,
@@ -166,7 +164,7 @@ const resetPassword = async (req, res) => {
     }).select("+password +resetPasswordToken +resetPasswordExpires");
 
     if (!user) {
-      // add dev hint so you know what failed
+      // add dev hint so we know what failed
       const hint = process.env.NODE_ENV === "production" ? undefined : "Invalid email/token or token expired";
       return res.status(400).json({ success:false, message:"Invalid or expired token", _dbg: hint });
     }
@@ -207,10 +205,9 @@ const authMiddleware = async (req, res, next) => {
 };
 
 //admin midlware
-// Ensure request comes from a logged-in ADMIN user
 const adminOnly = async (req, res, next) => {
   try {
-    // `authMiddleware` must run before this, so req.user.id should exist
+
     if (!req.user?.id) {
       return res.status(401).json({ success: false, message: "Unauthorised user!" });
     }

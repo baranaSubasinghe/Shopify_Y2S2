@@ -2,7 +2,7 @@ const mongoose = require("mongoose");
 const User = require("../../models/User");
 const Order = require("../../models/Order");
 
-// --- helpers ---
+
 async function isLastAdmin(userId) {
   // how many admins exist?
   const count = await User.countDocuments({ role: "admin" });
@@ -12,7 +12,6 @@ async function isLastAdmin(userId) {
   return !!me && me.role === "admin" && count === 1;
 }
 
-// GET /api/admin/users/stats
 exports.getUserStats = async (_req, res) => {
   try {
     const byRole = await User.aggregate([
@@ -60,7 +59,7 @@ exports.getAllUsers = async (req, res) => {
       User.countDocuments(filter),
     ]);
 
-    // ⚠️ keep the same response shape your UI expects
+    // keep the same response shape your UI expects
     return res.json({
       success: true,
       data: { items, total, page: Number(page), limit: Number(limit) },
@@ -103,15 +102,13 @@ exports.deleteUserById = async (req, res) => {
   }
 };
 
-// PATCH /api/admin/users/:id/role
-// Body: { role: "admin" | "delivery" | "user" }  (or { newRole: ... })
+
 exports.updateUserRole = async (req, res) => {
   try {
     const { id } = req.params;
     const incoming = req.body?.role || req.body?.newRole;
     const nextRole = typeof incoming === "string" ? incoming.toLowerCase() : "";
 
-    // ✅ now supports "delivery" as well
     const ALLOWED = new Set(["admin", "delivery", "user"]);
     if (!ALLOWED.has(nextRole)) {
       return res.status(400).json({
@@ -123,7 +120,6 @@ exports.updateUserRole = async (req, res) => {
     const requesterId = String(req.user?.id || req.user?._id || "");
     const isSelf = requesterId && requesterId === String(id);
 
-    // Safety: don't let the last admin demote themself to delivery/user
     if (isSelf && nextRole !== "admin" && (await isLastAdmin(id))) {
       return res.status(400).json({
         success: false,
@@ -142,7 +138,6 @@ exports.updateUserRole = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
-    // ⚠️ keep the same response shape your UI expects
     return res.json({ success: true, data: updated });
   } catch (err) {
     console.error("updateUserRole error:", err);
@@ -150,7 +145,7 @@ exports.updateUserRole = async (req, res) => {
   }
 };
 // GET /api/admin/users/summary
-// returns { total, admin, delivery, user }
+
 exports.getUsersSummary = async (_req, res) => {
   try {
     const User = require("../../models/User");
@@ -163,7 +158,7 @@ exports.getUsersSummary = async (_req, res) => {
       const key = String(g._id || "user").toLowerCase();
       if (key === "admin") out.admin = g.count;
       else if (key === "delivery") out.delivery = g.count;
-      else out.user += g.count; // treat anything else as "user"
+      else out.user += g.count; 
       out.total += g.count;
     }
 
@@ -182,7 +177,6 @@ exports.getActiveDeliveryStaff = async (req, res) => {
     const deliveredStates     = ["DELIVERED", "delivered"];
     const nearDeliveredStates = ["OUT_FOR_DELIVERY", "out_for_delivery", "SHIPPED", "shipped"];
 
-    // Where the delivery user might be stored
     const idPaths = [
       "assignedTo",
       "assignedUserId",
@@ -195,7 +189,6 @@ exports.getActiveDeliveryStaff = async (req, res) => {
       "delivery.acceptedBy",
     ];
 
-    // choose first non-null of the above
     const coalescePaths = (paths) => ({
       $let: {
         vars: { vals: paths.map(p => ({ $ifNull: [ `$${p}`, null ] })) },
@@ -214,21 +207,18 @@ exports.getActiveDeliveryStaff = async (req, res) => {
       ]
     };
 
-    // Build a generic pipeline that can target several statuses
     const buildPipeline = (allowedStatuses) => {
-      const chosenIdExpr = coalescePaths(idPaths);         // could be ObjectId or string
-      const chosenIdStr  = { $toString: chosenIdExpr };    // normalize to string key for grouping
+      const chosenIdExpr = coalescePaths(idPaths);         
+      const chosenIdStr  = { $toString: chosenIdExpr };    
 
       return [
         { $match: { orderStatus: { $in: allowedStatuses } } },
         { $addFields: { _ts: resolvedDateExpr } },
         { $match: { _ts: { $gte: since } } },
 
-        // Get a string key, drop empty/ "null"
         { $addFields: { _deliveryKey: chosenIdStr } },
         { $match: { _deliveryKey: { $nin: [null, "", "null", "undefined"] } } },
 
-        // Group by the normalized string key
         { $group: {
             _id: "$_deliveryKey",
             lastDeliveredAt: { $max: "$_ts" },
@@ -238,7 +228,6 @@ exports.getActiveDeliveryStaff = async (req, res) => {
         { $sort: { lastDeliveredAt: -1 } },
         { $limit: limit },
 
-        // Try to lookup the user by comparing string(_id) with our string key
         { $lookup: {
             from: "users",
             let: { key: "$_id" },

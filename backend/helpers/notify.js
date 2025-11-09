@@ -1,13 +1,10 @@
-// backend/helpers/notify.js
 const mongoose = require("mongoose");
 
 function loadModel() {
   try {
-    // ✅ match the actual filename's casing
     return require("../models/userNotification");
   } catch (e1) {
     try {
-      // fallback if your file really is lowercased
       return require("../models/userNotification");
     } catch (e2) {
       console.warn("[notify] UserNotification model not found; will only log.");
@@ -42,7 +39,7 @@ async function notifyUser(userId, type, title, message, meta = {}) {
     message: String(message || "").trim(),
     meta,
     isRead: false,
-    createdAt: new Date(), // fine even if schema has timestamps
+    createdAt: new Date(), 
   };
 
   if (!UserNotification) {
