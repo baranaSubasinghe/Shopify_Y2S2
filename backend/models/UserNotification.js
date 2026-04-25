@@ -1,17 +1,38 @@
-// backend/models/UserNotification.js
 const mongoose = require("mongoose");
 
-const UserNotificationSchema = new mongoose.Schema(
+const userNotificationSchema = new mongoose.Schema(
   {
-    user:    { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
-    type:    { type: String, default: "INFO" },         // e.g. ORDER, PROMO, INFO
-    title:   { type: String, required: true },
-    message: { type: String, default: "" },
-    isRead:  { type: Boolean, default: false },
-    meta:    { type: Object, default: {} },             // { orderId, productId, ... }
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: false,
+    },
+
+    title: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    message: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    type: {
+      type: String,
+      default: "general",
+    },
+
+    isRead: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );
 
-UserNotificationSchema.index({ user: 1, isRead: 1, createdAt: -1 });
-module.exports = mongoose.model("UserNotification", UserNotificationSchema);
+module.exports =
+  mongoose.models.UserNotification ||
+  mongoose.model("UserNotification", userNotificationSchema);

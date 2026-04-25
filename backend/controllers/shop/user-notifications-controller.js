@@ -1,6 +1,6 @@
 // backend/controllers/shop/user-notifications-controller.js
 const mongoose = require("mongoose");
-const UserNotification = require("../../models/userNotification");
+const UserNotification = require("../../models/UserNotification");
 
 const uid = (u) => (u && (u._id || u.id)) || null;
 
